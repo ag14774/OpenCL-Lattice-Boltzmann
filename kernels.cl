@@ -4,17 +4,17 @@
 
 typedef struct
 {
-  double speeds[NSPEEDS];
+  float speeds[NSPEEDS];
 } t_speed;
 
 kernel void accelerate_flow(global t_speed* cells,
                             global int* obstacles,
                             int nx, int ny,
-                            double density, double accel)
+                            float density, float accel)
 {
   /* compute weighting factors */
-  double w1 = density * accel / 9.0;
-  double w2 = density * accel / 36.0;
+  float w1 = density * accel / 9.0f;
+  float w2 = density * accel / 36.0f;
 
   /* modify the 2nd row of the grid */
   int ii = ny - 2;
@@ -25,9 +25,9 @@ kernel void accelerate_flow(global t_speed* cells,
   /* if the cell is not occupied and
   ** we don't send a negative density */
   if (!obstacles[ii * nx + jj]
-      && (cells[ii * nx + jj].speeds[3] - w1) > 0.0
-      && (cells[ii * nx + jj].speeds[6] - w2) > 0.0
-      && (cells[ii * nx + jj].speeds[7] - w2) > 0.0)
+      && (cells[ii * nx + jj].speeds[3] - w1) > 0.0f
+      && (cells[ii * nx + jj].speeds[6] - w2) > 0.0f
+      && (cells[ii * nx + jj].speeds[7] - w2) > 0.0f)
   {
     /* increase 'east-side' densities */
     cells[ii * nx + jj].speeds[1] += w1;
