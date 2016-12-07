@@ -234,6 +234,8 @@ __kernel void timestep(__global t_speed* restrict cells,
   const float w1 = 0.1111111111111111111111f;  /* weighting factor */
   const float w2 = 0.0277777777777777777778f; /* weighting factor */
   float tot_u = 0.0f;
+
+  const unsigned int lookup[9][2] __attribute__((aligned(32))) = {{0,0},{3,1},{4,2},{1,3},{2,4},{7,5},{8,6},{5,7},{6,8}};
  
   /* loop over the cells in the grid
   ** NB the collision step is called after
@@ -377,56 +379,21 @@ __kernel void timestep(__global t_speed* restrict cells,
       d_equ[VECSIZE*8+k] = w2 * (densvec[k] + ic_sqtimesu[VECSIZE*8+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*8+k]-u_sq[k]) );
   }
   
-  int obst=0;
+  int mask = obstacles[ii*nx+jj/*+k*/]^1;
+  
   #pragma vector aligned
-  for(int k=0;k<VECSIZE;k++){
-      obst+=obstacles[ii*nx+jj+k];
-  }
-  
-  if(!obst){
-      #pragma vector aligned
-      for(int k=0;k<VECSIZE;k++){
-          tmp_cells[ii * nx + jj + k].speeds[0] = tmp[VECSIZE*0+k] + omega*(d_equ[VECSIZE*0+k] - tmp[VECSIZE*0+k]);
-          tmp_cells[ii * nx + jj + k].speeds[1] = tmp[VECSIZE*1+k] + omega*(d_equ[VECSIZE*1+k] - tmp[VECSIZE*1+k]);
-          tmp_cells[ii * nx + jj + k].speeds[2] = tmp[VECSIZE*2+k] + omega*(d_equ[VECSIZE*2+k] - tmp[VECSIZE*2+k]);
-          tmp_cells[ii * nx + jj + k].speeds[3] = tmp[VECSIZE*3+k] + omega*(d_equ[VECSIZE*3+k] - tmp[VECSIZE*3+k]);
-          tmp_cells[ii * nx + jj + k].speeds[4] = tmp[VECSIZE*4+k] + omega*(d_equ[VECSIZE*4+k] - tmp[VECSIZE*4+k]);
-          tmp_cells[ii * nx + jj + k].speeds[5] = tmp[VECSIZE*5+k] + omega*(d_equ[VECSIZE*5+k] - tmp[VECSIZE*5+k]);
-          tmp_cells[ii * nx + jj + k].speeds[6] = tmp[VECSIZE*6+k] + omega*(d_equ[VECSIZE*6+k] - tmp[VECSIZE*6+k]);
-          tmp_cells[ii * nx + jj + k].speeds[7] = tmp[VECSIZE*7+k] + omega*(d_equ[VECSIZE*7+k] - tmp[VECSIZE*7+k]);
-          tmp_cells[ii * nx + jj + k].speeds[8] = tmp[VECSIZE*8+k] + omega*(d_equ[VECSIZE*8+k] - tmp[VECSIZE*8+k]);
-          tot_u += sqrt(u_sq[k]) * densinv[k];
-      }
-  }
-  else{
-  
-      #pragma vector aligned
-      for(int k=0;k<VECSIZE;k++){
-          if(!obstacles[ii * nx +jj +k]){
-              tmp_cells[ii * nx + jj + k].speeds[0] = tmp[VECSIZE*0+k] + omega*(d_equ[VECSIZE*0+k] - tmp[VECSIZE*0+k]);
-              tmp_cells[ii * nx + jj + k].speeds[1] = tmp[VECSIZE*1+k] + omega*(d_equ[VECSIZE*1+k] - tmp[VECSIZE*1+k]);
-              tmp_cells[ii * nx + jj + k].speeds[2] = tmp[VECSIZE*2+k] + omega*(d_equ[VECSIZE*2+k] - tmp[VECSIZE*2+k]);
-              tmp_cells[ii * nx + jj + k].speeds[3] = tmp[VECSIZE*3+k] + omega*(d_equ[VECSIZE*3+k] - tmp[VECSIZE*3+k]);
-              tmp_cells[ii * nx + jj + k].speeds[4] = tmp[VECSIZE*4+k] + omega*(d_equ[VECSIZE*4+k] - tmp[VECSIZE*4+k]);
-              tmp_cells[ii * nx + jj + k].speeds[5] = tmp[VECSIZE*5+k] + omega*(d_equ[VECSIZE*5+k] - tmp[VECSIZE*5+k]);
-              tmp_cells[ii * nx + jj + k].speeds[6] = tmp[VECSIZE*6+k] + omega*(d_equ[VECSIZE*6+k] - tmp[VECSIZE*6+k]);
-              tmp_cells[ii * nx + jj + k].speeds[7] = tmp[VECSIZE*7+k] + omega*(d_equ[VECSIZE*7+k] - tmp[VECSIZE*7+k]);
-              tmp_cells[ii * nx + jj + k].speeds[8] = tmp[VECSIZE*8+k] + omega*(d_equ[VECSIZE*8+k] - tmp[VECSIZE*8+k]);
-              tot_u += sqrt(u_sq[k]) * densinv[k]; 
-          }
-          else{
-              tmp_cells[ii * nx + jj + k].speeds[0] = tmp[VECSIZE*0+k];
-              tmp_cells[ii * nx + jj + k].speeds[3] = tmp[VECSIZE*1+k];
-              tmp_cells[ii * nx + jj + k].speeds[4] = tmp[VECSIZE*2+k];
-              tmp_cells[ii * nx + jj + k].speeds[1] = tmp[VECSIZE*3+k];
-              tmp_cells[ii * nx + jj + k].speeds[2] = tmp[VECSIZE*4+k];
-              tmp_cells[ii * nx + jj + k].speeds[7] = tmp[VECSIZE*5+k];
-              tmp_cells[ii * nx + jj + k].speeds[8] = tmp[VECSIZE*6+k];
-              tmp_cells[ii * nx + jj + k].speeds[5] = tmp[VECSIZE*7+k];
-              tmp_cells[ii * nx + jj + k].speeds[6] = tmp[VECSIZE*8+k];
-          
-          }
-      }
+  for(int k=0;k<VECSIZE;k++)
+  {
+      tmp_cells[ii * nx + jj + k].speeds[lookup[0][mask]] = tmp[VECSIZE*0+k] + mask*omega*(d_equ[VECSIZE*0+k] - tmp[VECSIZE*0+k]);
+      tmp_cells[ii * nx + jj + k].speeds[lookup[1][mask]] = tmp[VECSIZE*1+k] + mask*omega*(d_equ[VECSIZE*1+k] - tmp[VECSIZE*1+k]);
+      tmp_cells[ii * nx + jj + k].speeds[lookup[2][mask]] = tmp[VECSIZE*2+k] + mask*omega*(d_equ[VECSIZE*2+k] - tmp[VECSIZE*2+k]);
+      tmp_cells[ii * nx + jj + k].speeds[lookup[3][mask]] = tmp[VECSIZE*3+k] + mask*omega*(d_equ[VECSIZE*3+k] - tmp[VECSIZE*3+k]);
+      tmp_cells[ii * nx + jj + k].speeds[lookup[4][mask]] = tmp[VECSIZE*4+k] + mask*omega*(d_equ[VECSIZE*4+k] - tmp[VECSIZE*4+k]);
+      tmp_cells[ii * nx + jj + k].speeds[lookup[5][mask]] = tmp[VECSIZE*5+k] + mask*omega*(d_equ[VECSIZE*5+k] - tmp[VECSIZE*5+k]);
+      tmp_cells[ii * nx + jj + k].speeds[lookup[6][mask]] = tmp[VECSIZE*6+k] + mask*omega*(d_equ[VECSIZE*6+k] - tmp[VECSIZE*6+k]);
+      tmp_cells[ii * nx + jj + k].speeds[lookup[7][mask]] = tmp[VECSIZE*7+k] + mask*omega*(d_equ[VECSIZE*7+k] - tmp[VECSIZE*7+k]);
+      tmp_cells[ii * nx + jj + k].speeds[lookup[8][mask]] = tmp[VECSIZE*8+k] + mask*omega*(d_equ[VECSIZE*8+k] - tmp[VECSIZE*8+k]);
+      tot_u += mask * sqrt(u_sq[k]) * densinv[k];
   }
  
   int local_size_X = get_local_size(0);

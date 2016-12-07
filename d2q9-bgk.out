@@ -1,7 +1,7 @@
 Running on host node46-002
-Time is Wed Dec 7 00:47:49 GMT 2016
+Time is Wed Dec 7 02:30:23 GMT 2016
 Directory is /panfs/panasas01/cosc/ag14774/OpenCL-Lattice-Boltzmann
-PBS job ID is 5222972.master.cm.cluster
+PBS job ID is 5223018.master.cm.cluster
 This jobs runs on the following machines:
 node46-002
 Using GPU at index 0
@@ -17,6 +17,6 @@ Work group size(CL_KERNEL_WORK_GROUP_SIZE): 256
 256x1 workgroups with 1x256 items each
 ==done==
 Reynolds number:		1.006881618500E+01
-Elapsed time:			11.769668 (s)
-Elapsed user CPU time:		11.321278 (s)
-Elapsed system CPU time:	1.644749 (s)
+Elapsed time:			11.928680 (s)
+Elapsed user CPU time:		11.463257 (s)
+Elapsed system CPU time:	1.664746 (s)
