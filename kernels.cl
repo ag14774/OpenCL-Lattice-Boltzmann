@@ -224,7 +224,7 @@ __kernel void timestep(__global t_speed* restrict cells,
                      __global t_speed* restrict tmp_cells,
                      __global int* restrict obstacles, 
                      int nx, int ny, float omega, float free_cells_inv,
-                     __local float* local_avgs,
+                     __local volatile float* local_avgs,
                      __global float* partial_avgs) //remember to reduce partial_avg in a different kernel
 {
   //static const float c_sq = 1.0 / 3.0; /* square of speed of sound */
@@ -444,21 +444,21 @@ __kernel void timestep(__global t_speed* restrict cells,
   int num_groups_Y = get_num_groups(1);
   int groupID = group_id_Y * num_groups_X + group_id_X;
   partial_avgs[groupID] = 0.0f;
-  for(unsigned int s=local_size/2;s>0;s>>=1){
+  for(unsigned int s=local_size/2;s>32;s>>=1){
     if(itemID<s){
         local_avgs[itemID] += local_avgs[itemID + s];
     }
     barrier(CLK_LOCAL_MEM_FENCE);
   }
   //No need to synchronise in the last warp
-  //if(itemID < 32){
-  //  local_avgs[itemID] += local_avgs[itemID + 32];
-  //  local_avgs[itemID] += local_avgs[itemID + 16];
-  //  local_avgs[itemID] += local_avgs[itemID + 8];
-  //  local_avgs[itemID] += local_avgs[itemID + 4];
-  //  local_avgs[itemID] += local_avgs[itemID + 2];
-  //  local_avgs[itemID] += local_avgs[itemID + 1];
-  //}
+  if(itemID < 32){
+    local_avgs[itemID] += local_avgs[itemID + 32];
+    local_avgs[itemID] += local_avgs[itemID + 16];
+    local_avgs[itemID] += local_avgs[itemID + 8];
+    local_avgs[itemID] += local_avgs[itemID + 4];
+    local_avgs[itemID] += local_avgs[itemID + 2];
+    local_avgs[itemID] += local_avgs[itemID + 1];
+  }
   if(itemID == 0) partial_avgs[groupID] = local_avgs[0];
  
 }
