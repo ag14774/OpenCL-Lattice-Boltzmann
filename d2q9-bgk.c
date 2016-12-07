@@ -69,11 +69,11 @@
 #define FINALSTATEFILE  "final_state.dat"
 #define AVVELSFILE      "av_vels.dat"
 #define OCLFILE         "kernels.cl"
-#define BLOCKSIZE       16  //Not used
 #define NUMTHREADS      1
 
 //Vector size
 #define VECSIZE 1
+//#define SINGLE_WRKGRP_REDUCT
 
 
 /* struct to hold the parameter values */
@@ -130,7 +130,6 @@ typedef struct
 /* load params, allocate memory, load obstacles & initialise fluid particle densities */
 int initialise(const char* paramfile, const char* obstaclefile, t_param* params, t_speed** cells_ptr,
                t_speed** tmp_cells_ptr, int** obstacles_ptr, float** av_vels_ptr, t_ocl* ocl);
-void preprocess_obstacles(int* obstacles,const t_param params);
 
 /*
 ** The main calculation methods.
@@ -351,18 +350,52 @@ inline void reduce(t_ocl ocl, int tt){
     // Set kernel arguments
     err = clSetKernelArg(ocl.reduce, 0, sizeof(cl_mem), &ocl.partial_avgs);
     checkError(err, "setting reduce arg 0",__LINE__);
-    err = clSetKernelArg(ocl.reduce, 1, sizeof(cl_mem), &ocl.avgs);
-    checkError(err, "setting reduce arg 1",__LINE__);
-    err = clSetKernelArg(ocl.reduce, 2, sizeof(cl_int), &tt);
+    //err = clSetKernelArg(ocl.reduce, 1, sizeof(float), NULL);
+    //checkError(err, "setting reduce arg 1",__LINE__);
+    err = clSetKernelArg(ocl.reduce, 2, sizeof(cl_mem), &ocl.avgs);
     checkError(err, "setting reduce arg 2",__LINE__);
+    err = clSetKernelArg(ocl.reduce, 3, sizeof(cl_int), &tt);
+    checkError(err, "setting reduce arg 3",__LINE__);
 
-    size_t global[1] = {ocl.nwork_groups_X*ocl.nwork_groups_Y};
+    size_t global_size = ocl.nwork_groups_X*ocl.nwork_groups_Y;
+    size_t global[1];
+    size_t local[1];
+    
+    #ifdef SINGLE_WRKGRP_REDUCT
 
-    err = clEnqueueNDRangeKernel(ocl.queue, ocl.reduce, 1, NULL, global, NULL, 0, NULL, NULL);
+    while(global_size != 1)
+    {
+        global_size = global_size / 2;
+        global[0] = global_size;
+        if(global_size >= 32)
+            local[0] = 32;
+        else
+            local[0] = global_size;
+        global_size = global_size / local[0]; //after running the kernel
+        
+        err = clSetKernelArg(ocl.reduce, 1, sizeof(float)*local[0], NULL);
+        checkError(err, "setting reduce arg 1",__LINE__);
+    
+        err = clEnqueueNDRangeKernel(ocl.queue, ocl.reduce, 1, NULL, global, local, 0, NULL, NULL);
+        checkError(err, "enqueueing reduce kernel", __LINE__);
+
+        err = clFinish(ocl.queue);
+        checkError(err, "waiting for reduce kernel", __LINE__);
+    }
+
+    #else
+    global_size = global_size / 2;
+    global[0] = local[0] = global_size;
+    
+    err = clSetKernelArg(ocl.reduce, 1, sizeof(float)*local[0], NULL);
+    checkError(err, "setting reduce arg 1",__LINE__);
+    
+    err = clEnqueueNDRangeKernel(ocl.queue, ocl.reduce, 1, NULL, global, local, 0, NULL, NULL);
     checkError(err, "enqueueing reduce kernel", __LINE__);
 
     err = clFinish(ocl.queue);
     checkError(err, "waiting for reduce kernel", __LINE__);
+    #endif
 
 }
 
