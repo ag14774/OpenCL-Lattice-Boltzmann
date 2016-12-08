@@ -73,7 +73,7 @@
 
 //Vector size
 #define VECSIZE 64
-#define SINGLE_WRKGRP_REDUCT
+//#define SINGLE_WRKGRP_REDUCT
 
 
 /* struct to hold the parameter values */
@@ -285,10 +285,6 @@ inline void accelerate_flow(const t_param params, cl_mem* d_cells, t_ocl ocl)
   checkError(err, "setting accelerate_flow arg 0", __LINE__);
   err = clSetKernelArg(ocl.accelerate_flow, 1, sizeof(cl_mem), &ocl.obstacles);
   checkError(err, "setting accelerate_flow arg 1", __LINE__);
-  err = clSetKernelArg(ocl.accelerate_flow, 2, sizeof(cl_float), &params.density);
-  checkError(err, "setting accelerate_flow arg 2", __LINE__);
-  err = clSetKernelArg(ocl.accelerate_flow, 3, sizeof(cl_float), &params.accel);
-  checkError(err, "setting accelerate_flow arg 3", __LINE__);
 
   // Enqueue kernel
   size_t global[1] = {params.nx};
@@ -315,16 +311,12 @@ inline void timestep(const t_param params, cl_mem* d_cells, cl_mem* d_tmp_cells,
     checkError(err, "setting timestep arg 1",__LINE__);
     err = clSetKernelArg(ocl.timestep, 2, sizeof(cl_mem), &ocl.obstacles);
     checkError(err, "setting timestep arg 2",__LINE__);
-    err = clSetKernelArg(ocl.timestep, 3, sizeof(cl_float), &params.omega);
+    err = clSetKernelArg(ocl.timestep, 3, sizeof(float)*work_group_size*NSPEEDS, NULL); //tmp
     checkError(err, "setting timestep arg 3",__LINE__);
-    err = clSetKernelArg(ocl.timestep, 4, sizeof(cl_float), &params.free_cells_inv);
+    err = clSetKernelArg(ocl.timestep, 4, sizeof(float)*work_group_size, NULL); //local_avgs
     checkError(err, "setting timestep arg 4",__LINE__);
-    err = clSetKernelArg(ocl.timestep, 5, sizeof(float)*work_group_size*NSPEEDS, NULL); //tmp
+    err = clSetKernelArg(ocl.timestep, 5, sizeof(cl_mem), &ocl.partial_avgs);
     checkError(err, "setting timestep arg 5",__LINE__);
-    err = clSetKernelArg(ocl.timestep, 6, sizeof(float)*work_group_size, NULL); //local_avgs
-    checkError(err, "setting timestep arg 6",__LINE__);
-    err = clSetKernelArg(ocl.timestep, 7, sizeof(cl_mem), &ocl.partial_avgs);
-    checkError(err, "setting timestep arg 7",__LINE__);
 
     size_t global[2] = {params.nx, params.ny};
     size_t local[2] = {ocl.work_group_size_X, ocl.work_group_size_Y};
@@ -362,8 +354,8 @@ inline void reduce(t_ocl ocl, int tt){
         printf("global_size: %lu\n",global_size);
         global_size = global_size / 2;
         global[0] = global_size;
-        if(global_size >= 32)
-            local[0] = 32;
+        if(global_size >= 256)
+            local[0] = 256;
         else
             local[0] = global_size;
         global_size = global_size / local[0]; //after running the kernel
@@ -394,214 +386,6 @@ inline void reduce(t_ocl ocl, int tt){
 
 }
 
-//inline float timestep(const t_param params, t_speed* restrict cells, t_speed* restrict tmp_cells, int* restrict obstacles, t_ocl ocl)
-//{
-//  //static const float c_sq = 1.0 / 3.0; /* square of speed of sound */
-//  static const float ic_sq = 3.0f;
-//  //static const float ic_sq_sq = 9.0;
-//  static const float w0 = 4.0f / 9.0f;  /* weighting factor */
-//  static const float w1 = 1.0f / 9.0f;  /* weighting factor */
-//  static const float w2 = 1.0f / 36.0f; /* weighting factor */
-//  float tot_u = 0.0f;
-// 
-//  /* loop over the cells in the grid
-//  ** NB the collision step is called after
-//  ** the propagate step and so values of interest
-//  ** are in the scratch-space grid */
-//  
-//  int start = 0;
-//  int end   = params.ny;
-//  for (unsigned int ii = start; ii < end; ii++)
-//  {
-//    int y_n = ii + 1;
-//    if(y_n == params.ny) y_n = 0;
-//    int y_s = ii - 1;
-//    if(y_s == -1) y_s = params.ny-1;
-//    for(unsigned int jj = 0; jj < params.nx; jj+=VECSIZE){
-//        /* determine indices of axis-direction neighbours
-//        ** respecting periodic boundary conditions (wrap around) */
-//        float tmp[VECSIZE*NSPEEDS] __attribute__((aligned(32)));
-//        #pragma vector aligned
-//        for(int k=0;k<VECSIZE;k++){
-//            int x = jj+k;
-//            int x_e = x + 1;
-//            if(x_e >= params.nx) x_e -= params.nx;
-//            int x_w = (x == 0) ? (params.nx - 1) : (x-1);
-//            tmp[VECSIZE*0+k] = cells[ii * params.nx + x].speeds[0];
-//            tmp[VECSIZE*1+k] = cells[ii * params.nx + x_w].speeds[1];
-//            tmp[VECSIZE*2+k] = cells[y_s * params.nx + x].speeds[2];
-//            tmp[VECSIZE*3+k] = cells[ii * params.nx + x_e].speeds[3];
-//            tmp[VECSIZE*4+k] = cells[y_n * params.nx + x].speeds[4];
-//            tmp[VECSIZE*5+k] = cells[y_s * params.nx + x_w].speeds[5];
-//            tmp[VECSIZE*6+k] = cells[y_s * params.nx + x_e].speeds[6];
-//            tmp[VECSIZE*7+k] = cells[y_n * params.nx + x_e].speeds[7];
-//            tmp[VECSIZE*8+k] = cells[y_n * params.nx + x_w].speeds[8];
-//            
-//        }
-// 
-//        float densvec[VECSIZE] __attribute__((aligned(32)));
-// 
-//        #pragma vector aligned
-//        for(int k=0;k<VECSIZE;k++){
-//            densvec[k] = tmp[VECSIZE*0+k];
-//            densvec[k] += tmp[VECSIZE*1+k];
-//            densvec[k] += tmp[VECSIZE*2+k];
-//            densvec[k] += tmp[VECSIZE*3+k];
-//            densvec[k] += tmp[VECSIZE*4+k];
-//            densvec[k] += tmp[VECSIZE*5+k];
-//            densvec[k] += tmp[VECSIZE*6+k];
-//            densvec[k] += tmp[VECSIZE*7+k];
-//            densvec[k] += tmp[VECSIZE*8+k];
-//        }
-// 
-//        float densinv[VECSIZE] __attribute__((aligned(32)));
-//        #pragma vector aligned
-//        for(int k=0;k<VECSIZE;k++)
-//        {
-//            densinv[k] = 1.0f/densvec[k];
-//        }
-// 
-//        float u_x[VECSIZE] __attribute__((aligned(32)));
-//        float u_y[VECSIZE] __attribute__((aligned(32)));
-// 
-//        #pragma vector aligned
-//        for(int k=0;k<VECSIZE;k++)
-//        {
-//            u_x[k] = tmp[VECSIZE*1+k] + tmp[VECSIZE*5+k];
-//            u_x[k] += tmp[VECSIZE*8+k];
-//            u_x[k] -= tmp[VECSIZE*3+k];
-//            u_x[k] -= tmp[VECSIZE*6+k];
-//            u_x[k] -= tmp[VECSIZE*7+k];
-//            //u_x[k] *= densinv[k];
-//            u_y[k] = tmp[VECSIZE*2+k] + tmp[VECSIZE*5+k];
-//            u_y[k] += tmp[VECSIZE*6+k];
-//            u_y[k] -= tmp[VECSIZE*4+k];
-//            u_y[k] -= tmp[VECSIZE*7+k];
-//            u_y[k] -= tmp[VECSIZE*8+k];
-//            //u_y[k] *= densinv[k];
-//        }
-// 
-//        float u_sq[VECSIZE] __attribute__((aligned(32)));
-// 
-//        #pragma vector aligned
-//        for(int k=0;k<VECSIZE;k++)
-//        {
-//            u_sq[k] = u_x[k]*u_x[k] + u_y[k]*u_y[k];
-//        }
-// 
-//        float uvec[NSPEEDS*VECSIZE] __attribute__((aligned(32)));
-//        #pragma vector aligned
-//        for(int k=0;k<VECSIZE;k++)
-//        {
-//            uvec[VECSIZE*1+k] =   u_x[k];
-//            uvec[VECSIZE*2+k] =            u_y[k];
-//            uvec[VECSIZE*3+k] = - u_x[k];
-//            uvec[VECSIZE*4+k] =          - u_y[k];
-//            uvec[VECSIZE*5+k] =   u_x[k] + u_y[k];
-//            uvec[VECSIZE*6+k] = - u_x[k] + u_y[k];
-//            uvec[VECSIZE*7+k] = - u_x[k] - u_y[k];
-//            uvec[VECSIZE*8+k] =   u_x[k] - u_y[k];
-//        }
-// 
-//        float ic_sqtimesu[NSPEEDS*VECSIZE] __attribute__((aligned(32)));
-//        #pragma vector aligned
-//        for(int k=0;k<VECSIZE;k++)
-//        {
-//            ic_sqtimesu[VECSIZE*1+k] = uvec[VECSIZE*1+k]*ic_sq;
-//            ic_sqtimesu[VECSIZE*2+k] = uvec[VECSIZE*2+k]*ic_sq;
-//            ic_sqtimesu[VECSIZE*3+k] = uvec[VECSIZE*3+k]*ic_sq;
-//            ic_sqtimesu[VECSIZE*4+k] = uvec[VECSIZE*4+k]*ic_sq;
-//            ic_sqtimesu[VECSIZE*5+k] = uvec[VECSIZE*5+k]*ic_sq;
-//            ic_sqtimesu[VECSIZE*6+k] = uvec[VECSIZE*6+k]*ic_sq;
-//            ic_sqtimesu[VECSIZE*7+k] = uvec[VECSIZE*7+k]*ic_sq;
-//            ic_sqtimesu[VECSIZE*8+k] = uvec[VECSIZE*8+k]*ic_sq;
-//        }
-// 
-//        float ic_sqtimesu_sq[NSPEEDS*VECSIZE] __attribute__((aligned(32)));
-//        #pragma vector aligned
-//        for(int k=0;k<VECSIZE;k++)
-//        {
-//            ic_sqtimesu_sq[VECSIZE*1+k] = ic_sqtimesu[VECSIZE*1+k] * uvec[VECSIZE*1+k];
-//            ic_sqtimesu_sq[VECSIZE*2+k] = ic_sqtimesu[VECSIZE*2+k] * uvec[VECSIZE*2+k];
-//            ic_sqtimesu_sq[VECSIZE*3+k] = ic_sqtimesu[VECSIZE*3+k] * uvec[VECSIZE*3+k];
-//            ic_sqtimesu_sq[VECSIZE*4+k] = ic_sqtimesu[VECSIZE*4+k] * uvec[VECSIZE*4+k];
-//            ic_sqtimesu_sq[VECSIZE*5+k] = ic_sqtimesu[VECSIZE*5+k] * uvec[VECSIZE*5+k];
-//            ic_sqtimesu_sq[VECSIZE*6+k] = ic_sqtimesu[VECSIZE*6+k] * uvec[VECSIZE*6+k];
-//            ic_sqtimesu_sq[VECSIZE*7+k] = ic_sqtimesu[VECSIZE*7+k] * uvec[VECSIZE*7+k];
-//            ic_sqtimesu_sq[VECSIZE*8+k] = ic_sqtimesu[VECSIZE*8+k] * uvec[VECSIZE*8+k];
-//        }
-// 
-//        float d_equ[NSPEEDS*VECSIZE] __attribute__((aligned(32)));
-//        #pragma vector aligned
-//        for(int k=0;k<VECSIZE;k++)
-//        {
-//            d_equ[VECSIZE*0+k] = w0 * (densvec[k] - 0.5f*densinv[k]*ic_sq*u_sq[k]);
-//            d_equ[VECSIZE*1+k] = w1 * (densvec[k] + ic_sqtimesu[VECSIZE*1+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*1+k]-u_sq[k]) );
-//            d_equ[VECSIZE*2+k] = w1 * (densvec[k] + ic_sqtimesu[VECSIZE*2+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*2+k]-u_sq[k]) );
-//            d_equ[VECSIZE*3+k] = w1 * (densvec[k] + ic_sqtimesu[VECSIZE*3+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*3+k]-u_sq[k]) );
-//            d_equ[VECSIZE*4+k] = w1 * (densvec[k] + ic_sqtimesu[VECSIZE*4+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*4+k]-u_sq[k]) );
-//            d_equ[VECSIZE*5+k] = w2 * (densvec[k] + ic_sqtimesu[VECSIZE*5+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*5+k]-u_sq[k]) );
-//            d_equ[VECSIZE*6+k] = w2 * (densvec[k] + ic_sqtimesu[VECSIZE*6+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*6+k]-u_sq[k]) );
-//            d_equ[VECSIZE*7+k] = w2 * (densvec[k] + ic_sqtimesu[VECSIZE*7+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*7+k]-u_sq[k]) );
-//            d_equ[VECSIZE*8+k] = w2 * (densvec[k] + ic_sqtimesu[VECSIZE*8+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*8+k]-u_sq[k]) );
-//        }
-// 
-//        int obst=0;
-//        #pragma vector aligned
-//        for(int k=0;k<VECSIZE;k++){
-//            obst+=obstacles[ii*params.nx+jj+k];
-//        }
-// 
-//        if(!obst){
-//            #pragma vector aligned
-//            for(int k=0;k<VECSIZE;k++){
-//                tmp_cells[ii * params.nx + jj + k].speeds[0] = tmp[VECSIZE*0+k] + params.omega*(d_equ[VECSIZE*0+k] - tmp[VECSIZE*0+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[1] = tmp[VECSIZE*1+k] + params.omega*(d_equ[VECSIZE*1+k] - tmp[VECSIZE*1+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[2] = tmp[VECSIZE*2+k] + params.omega*(d_equ[VECSIZE*2+k] - tmp[VECSIZE*2+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[3] = tmp[VECSIZE*3+k] + params.omega*(d_equ[VECSIZE*3+k] - tmp[VECSIZE*3+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[4] = tmp[VECSIZE*4+k] + params.omega*(d_equ[VECSIZE*4+k] - tmp[VECSIZE*4+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[5] = tmp[VECSIZE*5+k] + params.omega*(d_equ[VECSIZE*5+k] - tmp[VECSIZE*5+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[6] = tmp[VECSIZE*6+k] + params.omega*(d_equ[VECSIZE*6+k] - tmp[VECSIZE*6+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[7] = tmp[VECSIZE*7+k] + params.omega*(d_equ[VECSIZE*7+k] - tmp[VECSIZE*7+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[8] = tmp[VECSIZE*8+k] + params.omega*(d_equ[VECSIZE*8+k] - tmp[VECSIZE*8+k]);
-//                tot_u += sqrt(u_sq[k]) * densinv[k];
-//            }
-//        }
-//        else{
-// 
-//        #pragma vector aligned
-//        for(int k=0;k<VECSIZE;k++){
-//            if(!obstacles[ii * params.nx +jj +k]){
-//                tmp_cells[ii * params.nx + jj + k].speeds[0] = tmp[VECSIZE*0+k] + params.omega*(d_equ[VECSIZE*0+k] - tmp[VECSIZE*0+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[1] = tmp[VECSIZE*1+k] + params.omega*(d_equ[VECSIZE*1+k] - tmp[VECSIZE*1+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[2] = tmp[VECSIZE*2+k] + params.omega*(d_equ[VECSIZE*2+k] - tmp[VECSIZE*2+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[3] = tmp[VECSIZE*3+k] + params.omega*(d_equ[VECSIZE*3+k] - tmp[VECSIZE*3+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[4] = tmp[VECSIZE*4+k] + params.omega*(d_equ[VECSIZE*4+k] - tmp[VECSIZE*4+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[5] = tmp[VECSIZE*5+k] + params.omega*(d_equ[VECSIZE*5+k] - tmp[VECSIZE*5+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[6] = tmp[VECSIZE*6+k] + params.omega*(d_equ[VECSIZE*6+k] - tmp[VECSIZE*6+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[7] = tmp[VECSIZE*7+k] + params.omega*(d_equ[VECSIZE*7+k] - tmp[VECSIZE*7+k]);
-//                tmp_cells[ii * params.nx + jj + k].speeds[8] = tmp[VECSIZE*8+k] + params.omega*(d_equ[VECSIZE*8+k] - tmp[VECSIZE*8+k]);
-//                tot_u += sqrt(u_sq[k]) * densinv[k]; 
-//            }
-//            else{
-//                tmp_cells[ii * params.nx + jj + k].speeds[0] = tmp[VECSIZE*0+k];
-//                tmp_cells[ii * params.nx + jj + k].speeds[3] = tmp[VECSIZE*1+k];
-//                tmp_cells[ii * params.nx + jj + k].speeds[4] = tmp[VECSIZE*2+k];
-//                tmp_cells[ii * params.nx + jj + k].speeds[1] = tmp[VECSIZE*3+k];
-//                tmp_cells[ii * params.nx + jj + k].speeds[2] = tmp[VECSIZE*4+k];
-//                tmp_cells[ii * params.nx + jj + k].speeds[7] = tmp[VECSIZE*5+k];
-//                tmp_cells[ii * params.nx + jj + k].speeds[8] = tmp[VECSIZE*6+k];
-//                tmp_cells[ii * params.nx + jj + k].speeds[5] = tmp[VECSIZE*7+k];
-//                tmp_cells[ii * params.nx + jj + k].speeds[6] = tmp[VECSIZE*8+k];
-//                
-//            }
-//        }
-//        }
-//    }
-//  }
-// 
-//  return tot_u;
-//}
 
 float av_velocity(const t_param params, t_speed* cells, int* obstacles, t_ocl ocl)
 {
@@ -848,7 +632,7 @@ int initialise(const char* paramfile, const char* obstaclefile,
 
   char options[256];
   options[0]='\0';
-  sprintf(options, "-cl-denorms-are-zero -cl-single-precision-constant -cl-fast-relaxed-math -cl-strict-aliasing -D NX=%d -D NY=%d",params->nx,params->ny);
+  sprintf(options, "-cl-denorms-are-zero -cl-single-precision-constant -cl-fast-relaxed-math -cl-strict-aliasing -D NX=%d -D NY=%d -D OMEGA=%a -D ACCEL=%a -D FREE_CELLS_INV=%a -D DENSITY=%a",params->nx,params->ny,params->omega,params->accel,params->free_cells_inv,params->density);
   // Build OpenCL program
   err = clBuildProgram(ocl->program, 1, &ocl->device, options, NULL, NULL);
   if (err == CL_BUILD_PROGRAM_FAILURE)
