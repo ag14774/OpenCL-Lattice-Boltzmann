@@ -15,8 +15,8 @@ kernel void accelerate_flow(global t_speed* cells,
 {
 
   /* compute weighting factors */
-  float w1 = density * accel / 9.0f;
-  float w2 = density * accel / 36.0f;
+  float w1 = native_divide(density * accel, 9.0f);
+  float w2 = native_divide(density * accel, 36.0f);
 
   /* modify the 2nd row of the grid */
   int ii = ny - 2;
@@ -26,20 +26,21 @@ kernel void accelerate_flow(global t_speed* cells,
 
   /* if the cell is not occupied and
   ** we don't send a negative density */
-  if (!obstacles[ii * nx + jj]
-      && (cells[ii * nx + jj].speeds[3] - w1) > 0.0f
-      && (cells[ii * nx + jj].speeds[6] - w2) > 0.0f
-      && (cells[ii * nx + jj].speeds[7] - w2) > 0.0f)
-  {
-    /* increase 'east-side' densities */
-    cells[ii * nx + jj].speeds[1] += w1;
-    cells[ii * nx + jj].speeds[5] += w2;
-    cells[ii * nx + jj].speeds[8] += w2;
-    /* decrease 'west-side' densities */
-    cells[ii * nx + jj].speeds[3] -= w1;
-    cells[ii * nx + jj].speeds[6] -= w2;
-    cells[ii * nx + jj].speeds[7] -= w2;
-  }
+  int mask = obstacles[ii * nx + jj]^1;
+  int mask1 = ((cells[ii * nx + jj].speeds[3] - w1)>0.0f) ? 1 : 0;
+  int mask2 = ((cells[ii * nx + jj].speeds[6] - w2)>0.0f) ? 1 : 0;
+  int mask3 = ((cells[ii * nx + jj].speeds[7] - w2)>0.0f) ? 1 : 0;
+  mask = mask & mask1 & mask2 & mask3;
+
+  /* increase 'east-side' densities */
+  cells[ii * nx + jj].speeds[1] = mad(mask,w1,cells[ii * nx + jj].speeds[1]);
+  cells[ii * nx + jj].speeds[5] = mad(mask,w2,cells[ii * nx + jj].speeds[5]);
+  cells[ii * nx + jj].speeds[8] = mad(mask,w2,cells[ii * nx + jj].speeds[8]);
+  /* decrease 'west-side' densities */
+  cells[ii * nx + jj].speeds[3] = mad(mask,-w1,cells[ii * nx + jj].speeds[3]);
+  cells[ii * nx + jj].speeds[6] = mad(mask,-w2,cells[ii * nx + jj].speeds[6]);
+  cells[ii * nx + jj].speeds[7] = mad(mask,-w2,cells[ii * nx + jj].speeds[7]);
+  
 }
 
 kernel void propagate(global t_speed* cells,
@@ -53,8 +54,8 @@ kernel void propagate(global t_speed* cells,
 
   /* determine indices of axis-direction neighbours
   ** respecting periodic boundary conditions (wrap around) */
-  int y_n = (ii + 1) % ny;
-  int x_e = (jj + 1) % nx;
+  int y_n = (ii + 1) & (ny-1);
+  int x_e = (jj + 1) & (nx-1);
   int y_s = (ii == 0) ? (ii + ny - 1) : (ii - 1);
   int x_w = (jj == 0) ? (jj + nx - 1) : (jj - 1);
   /* propagate densities to neighbouring cells, following
@@ -282,7 +283,7 @@ __kernel void timestep(__global t_speed* restrict cells,
   densvec += tmp[local_size*7+item_id];
   densvec += tmp[local_size*8+item_id];
   
-  float densinv = 1.0f/densvec;
+  float densinv = native_recip(densvec);
   
 
   float u_x = tmp[local_size*1+item_id] + tmp[local_size*5+item_id];
