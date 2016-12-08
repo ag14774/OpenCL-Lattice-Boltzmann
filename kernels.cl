@@ -76,7 +76,7 @@ __kernel void timestep(__global t_speed* restrict cells,
                      __global t_speed* restrict tmp_cells,
                      __global int* restrict obstacles, 
                      __local float* tmp,
-                     __local volatile float* local_avgs,
+                     __local float* local_avgs,
                      __global float* partial_avgs) //remember to reduce partial_avg in a different kernel
 {
   //static const float c_sq = 1.0 / 3.0; /* square of speed of sound */
@@ -218,27 +218,27 @@ __kernel void timestep(__global t_speed* restrict cells,
   int num_groups_Y = get_num_groups(1);
   int groupID = mul24(group_id_Y, num_groups_X) + group_id_X;
 
-  for(unsigned int s=local_size/2;s>32;s>>=1){
+  for(unsigned int s=local_size/2;s>0;s>>=1){
     if(item_id<s){
         local_avgs[item_id] += local_avgs[item_id + s];
     }
     barrier(CLK_LOCAL_MEM_FENCE);
   }
   //No need to synchronise in the last warp
-  if(item_id < 32){
-    local_avgs[item_id] += local_avgs[item_id + 32];
-    local_avgs[item_id] += local_avgs[item_id + 16];
-    local_avgs[item_id] += local_avgs[item_id + 8];
-    local_avgs[item_id] += local_avgs[item_id + 4];
-    local_avgs[item_id] += local_avgs[item_id + 2];
-    local_avgs[item_id] += local_avgs[item_id + 1];
-  }
+  //if(item_id < 32){
+  //  local_avgs[item_id] += local_avgs[item_id + 32];
+  //  local_avgs[item_id] += local_avgs[item_id + 16];
+  //  local_avgs[item_id] += local_avgs[item_id + 8];
+  //  local_avgs[item_id] += local_avgs[item_id + 4];
+  //  local_avgs[item_id] += local_avgs[item_id + 2];
+  //  local_avgs[item_id] += local_avgs[item_id + 1];
+  //}
   if(item_id == 0) partial_avgs[groupID] = local_avgs[0];
  
 }
 
 kernel void reduce(global float* partial_avgs,
-                   local volatile float* local_partial_avgs, 
+                   local  float* local_partial_avgs, 
                    global float* avgs, int tt)
 {
     float tmp = 0;
@@ -250,21 +250,22 @@ kernel void reduce(global float* partial_avgs,
     int global_id = get_global_id(0);
     local_partial_avgs[local_id] = partial_avgs[k] + partial_avgs[k+local_size];//reduce while copying from global to local
     barrier(CLK_LOCAL_MEM_FENCE);
-    for(unsigned int s=local_size/2;s>32;s>>=1){
+    unsigned int s;
+    for(unsigned int s=local_size/2;s>0;s>>=1){
         if(local_id<s){
             local_partial_avgs[local_id] += local_partial_avgs[local_id + s];
         }
         barrier(CLK_LOCAL_MEM_FENCE);
     }
     //No need to synchronise in the last warp
-    if(local_id < 32){
-        local_partial_avgs[local_id] += local_partial_avgs[local_id + 32];
-        local_partial_avgs[local_id] += local_partial_avgs[local_id + 16];
-        local_partial_avgs[local_id] += local_partial_avgs[local_id + 8];
-        local_partial_avgs[local_id] += local_partial_avgs[local_id + 4];
-        local_partial_avgs[local_id] += local_partial_avgs[local_id + 2];
-        local_partial_avgs[local_id] += local_partial_avgs[local_id + 1];
-    }
+    //if(local_id < 32){
+    //    local_partial_avgs[local_id] += local_partial_avgs[local_id + 32];
+    //    local_partial_avgs[local_id] += local_partial_avgs[local_id + 16];
+    //    local_partial_avgs[local_id] += local_partial_avgs[local_id + 8];
+    //    local_partial_avgs[local_id] += local_partial_avgs[local_id + 4];
+    //    local_partial_avgs[local_id] += local_partial_avgs[local_id + 2];
+    //    local_partial_avgs[local_id] += local_partial_avgs[local_id + 1];
+    //}
 
     if(local_id == 0){
         if(num_groups == 1)

@@ -351,11 +351,11 @@ inline void reduce(t_ocl ocl, int tt){
 
     while(global_size != 1)
     {
-        printf("global_size: %lu\n",global_size);
+        //printf("global_size: %lu\n",global_size);
         global_size = global_size / 2;
         global[0] = global_size;
-        if(global_size >= 256)
-            local[0] = 256;
+        if(global_size >= 512)
+            local[0] = 512;
         else
             local[0] = global_size;
         global_size = global_size / local[0]; //after running the kernel
@@ -632,7 +632,7 @@ int initialise(const char* paramfile, const char* obstaclefile,
 
   char options[256];
   options[0]='\0';
-  sprintf(options, "-cl-denorms-are-zero -cl-single-precision-constant -cl-fast-relaxed-math -cl-strict-aliasing -D NX=%d -D NY=%d -D OMEGA=%a -D ACCEL=%a -D FREE_CELLS_INV=%a -D DENSITY=%a",params->nx,params->ny,params->omega,params->accel,params->free_cells_inv,params->density);
+  sprintf(options, "-cl-denorms-are-zero -cl-single-precision-constant -cl-fast-relaxed-math -cl-strict-aliasing -D NX=%d -D NY=%d -D OMEGA=%ff -D ACCEL=%ff -D FREE_CELLS_INV=%a -D DENSITY=%ff",params->nx,params->ny,params->omega,params->accel,params->free_cells_inv,params->density);
   // Build OpenCL program
   err = clBuildProgram(ocl->program, 1, &ocl->device, options, NULL, NULL);
   if (err == CL_BUILD_PROGRAM_FAILURE)
