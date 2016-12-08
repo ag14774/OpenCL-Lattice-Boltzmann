@@ -5,75 +5,42 @@
 
 #define I(jj,ii,sp) ((sp)*NX*NY+(ii)*NX+(jj)) 
 
-typedef struct{
-    float speeds[NSPEEDS];
-} t_speed;
-
-kernel void accelerate_flow(global t_speed* cells,
+kernel void accelerate_flow(global float* cells,
                             global int* obstacles)
 {
 
   /* compute weighting factors */
-  float w1 = native_divide(DENSITY * ACCEL, 9.0f);
-  float w2 = native_divide(DENSITY * ACCEL, 36.0f);
+  const float w1 = native_divide(DENSITY * ACCEL, 9.0f);
+  const float w2 = native_divide(DENSITY * ACCEL, 36.0f);
 
   /* modify the 2nd row of the grid */
-  int ii = NY - 2;
+  const int ii = NY - 2;
 
   /* get column index */
   int jj = get_global_id(0);
 
   /* if the cell is not occupied and
   ** we don't send a negative density */
-  int index = mul24(ii,NX) + jj;
-  int mask = obstacles[index]^1;
-  int mask1 = ((cells[index].speeds[3] - w1)>0.0f) ? 1 : 0;
-  int mask2 = ((cells[index].speeds[6] - w2)>0.0f) ? 1 : 0;
-  int mask3 = ((cells[index].speeds[7] - w2)>0.0f) ? 1 : 0;
+  int mask = obstacles[ii*NX + jj]^1;
+  int mask1 = ((cells[I(jj,ii,3)] - w1)>0.0f) ? 1 : 0;
+  int mask2 = ((cells[I(jj,ii,6)] - w2)>0.0f) ? 1 : 0;
+  int mask3 = ((cells[I(jj,ii,7)] - w2)>0.0f) ? 1 : 0;
   mask = mask & mask1 & mask2 & mask3;
 
   /* increase 'east-side' densities */
-  cells[index].speeds[1] = mad(mask,w1,cells[index].speeds[1]);
-  cells[index].speeds[5] = mad(mask,w2,cells[index].speeds[5]);
-  cells[index].speeds[8] = mad(mask,w2,cells[index].speeds[8]);
+  cells[I(jj,ii,1)] = mad( mask, w1,cells[I(jj,ii,1)] );
+  cells[I(jj,ii,5)] = mad( mask, w2,cells[I(jj,ii,5)] );
+  cells[I(jj,ii,8)] = mad( mask, w2,cells[I(jj,ii,8)] );
   /* decrease 'west-side' densities */
-  cells[index].speeds[3] = mad(mask,-w1,cells[index].speeds[3]);
-  cells[index].speeds[6] = mad(mask,-w2,cells[index].speeds[6]);
-  cells[index].speeds[7] = mad(mask,-w2,cells[index].speeds[7]);
+  cells[I(jj,ii,3)] = mad( mask,-w1,cells[I(jj,ii,3)] );
+  cells[I(jj,ii,6)] = mad( mask,-w2,cells[I(jj,ii,6)] );
+  cells[I(jj,ii,7)] = mad( mask,-w2,cells[I(jj,ii,7)] );
   
 }
 
-kernel void propagate(global t_speed* cells,
-                      global t_speed* tmp_cells,
-                      global int* obstacles)
-{
-  /* get column and row indices */
-  int jj = get_global_id(0);
-  int ii = get_global_id(1);
 
-  /* determine indices of axis-direction neighbours
-  ** respecting periodic boundary conditions (wrap around) */
-  int y_n = (ii + 1) & (NY-1);
-  int x_e = (jj + 1) & (NX-1);
-  int y_s = (ii == 0) ? (ii + NY - 1) : (ii - 1);
-  int x_w = (jj == 0) ? (jj + NX - 1) : (jj - 1);
-  /* propagate densities to neighbouring cells, following
-  ** appropriate directions of travel and writing into
-  ** scratch space grid */
-  tmp_cells[ii  * NX + jj ].speeds[0] = cells[ii * NX + jj].speeds[0]; /* central cell, no movement */
-  tmp_cells[ii  * NX + x_e].speeds[1] = cells[ii * NX + jj].speeds[1]; /* east */
-  tmp_cells[y_n * NX + jj ].speeds[2] = cells[ii * NX + jj].speeds[2]; /* north */
-  tmp_cells[ii  * NX + x_w].speeds[3] = cells[ii * NX + jj].speeds[3]; /* west */
-  tmp_cells[y_s * NX + jj ].speeds[4] = cells[ii * NX + jj].speeds[4]; /* south */
-  tmp_cells[y_n * NX + x_e].speeds[5] = cells[ii * NX + jj].speeds[5]; /* north-east */
-  tmp_cells[y_n * NX + x_w].speeds[6] = cells[ii * NX + jj].speeds[6]; /* north-west */
-  tmp_cells[y_s * NX + x_w].speeds[7] = cells[ii * NX + jj].speeds[7]; /* south-west */
-  tmp_cells[y_s * NX + x_e].speeds[8] = cells[ii * NX + jj].speeds[8]; /* south-east */
-}
-
-
-__kernel void timestep(__global t_speed* restrict cells,
-                     __global t_speed* restrict tmp_cells,
+__kernel void timestep(__global float* restrict cells,
+                     __global float* restrict tmp_cells,
                      __global int* restrict obstacles, 
                      __local float* tmp,
                      __local float* local_avgs,
@@ -112,15 +79,15 @@ __kernel void timestep(__global t_speed* restrict cells,
   x_e = (x_e >= NX) ? (x_e -= NX) : (x_e);
   int x_w = (jj == 0) ? (NX - 1) : (jj-1);
   
-  tmp[local_size*0+item_id] = cells[mul24(ii, NX) + jj].speeds[0];
-  tmp[local_size*1+item_id] = cells[mul24(ii, NX) + x_w].speeds[1];
-  tmp[local_size*2+item_id] = cells[mul24(y_s, NX) + jj].speeds[2];
-  tmp[local_size*3+item_id] = cells[mul24(ii, NX) + x_e].speeds[3];
-  tmp[local_size*4+item_id] = cells[mul24(y_n, NX) + jj].speeds[4];
-  tmp[local_size*5+item_id] = cells[mul24(y_s, NX) + x_w].speeds[5];
-  tmp[local_size*6+item_id] = cells[mul24(y_s, NX) + x_e].speeds[6];
-  tmp[local_size*7+item_id] = cells[mul24(y_n, NX) + x_e].speeds[7];
-  tmp[local_size*8+item_id] = cells[mul24(y_n, NX) + x_w].speeds[8]; 
+  tmp[local_size*0+item_id] = cells[ I(jj ,ii ,0) ];
+  tmp[local_size*1+item_id] = cells[ I(x_w,ii ,1) ];
+  tmp[local_size*2+item_id] = cells[ I(jj ,y_s,2) ];
+  tmp[local_size*3+item_id] = cells[ I(x_e,ii ,3) ];
+  tmp[local_size*4+item_id] = cells[ I(jj ,y_n,4) ];
+  tmp[local_size*5+item_id] = cells[ I(x_w,y_s,5) ];
+  tmp[local_size*6+item_id] = cells[ I(x_e,y_s,6) ];
+  tmp[local_size*7+item_id] = cells[ I(x_e,y_n,7) ];
+  tmp[local_size*8+item_id] = cells[ I(x_w,y_n,8) ]; 
 
   
   float densvec = tmp[local_size*0+item_id];
@@ -196,17 +163,17 @@ __kernel void timestep(__global t_speed* restrict cells,
   d_equ[7] = w2 * (densvec + ic_sqtimesu[7] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[7]-u_sq) );
   d_equ[8] = w2 * (densvec + ic_sqtimesu[8] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[8]-u_sq) );
   
-  int mask = obstacles[mul24(ii,NX)+jj]^1;
+  int mask = obstacles[ii*NX+jj]^1;
   
-  tmp_cells[mul24(ii,NX) + jj].speeds[lookup[0][mask]] = tmp[local_size*0+item_id] + mask*OMEGA*(d_equ[0] - tmp[local_size*0+item_id]);
-  tmp_cells[mul24(ii,NX) + jj].speeds[lookup[1][mask]] = tmp[local_size*1+item_id] + mask*OMEGA*(d_equ[1] - tmp[local_size*1+item_id]);
-  tmp_cells[mul24(ii,NX) + jj].speeds[lookup[2][mask]] = tmp[local_size*2+item_id] + mask*OMEGA*(d_equ[2] - tmp[local_size*2+item_id]);
-  tmp_cells[mul24(ii,NX) + jj].speeds[lookup[3][mask]] = tmp[local_size*3+item_id] + mask*OMEGA*(d_equ[3] - tmp[local_size*3+item_id]);
-  tmp_cells[mul24(ii,NX) + jj].speeds[lookup[4][mask]] = tmp[local_size*4+item_id] + mask*OMEGA*(d_equ[4] - tmp[local_size*4+item_id]);
-  tmp_cells[mul24(ii,NX) + jj].speeds[lookup[5][mask]] = tmp[local_size*5+item_id] + mask*OMEGA*(d_equ[5] - tmp[local_size*5+item_id]);
-  tmp_cells[mul24(ii,NX) + jj].speeds[lookup[6][mask]] = tmp[local_size*6+item_id] + mask*OMEGA*(d_equ[6] - tmp[local_size*6+item_id]);
-  tmp_cells[mul24(ii,NX) + jj].speeds[lookup[7][mask]] = tmp[local_size*7+item_id] + mask*OMEGA*(d_equ[7] - tmp[local_size*7+item_id]);
-  tmp_cells[mul24(ii,NX) + jj].speeds[lookup[8][mask]] = tmp[local_size*8+item_id] + mask*OMEGA*(d_equ[8] - tmp[local_size*8+item_id]);
+  tmp_cells[I(jj,ii,lookup[0][mask])] = tmp[local_size*0+item_id] + mask*OMEGA*(d_equ[0] - tmp[local_size*0+item_id]);
+  tmp_cells[I(jj,ii,lookup[1][mask])] = tmp[local_size*1+item_id] + mask*OMEGA*(d_equ[1] - tmp[local_size*1+item_id]);
+  tmp_cells[I(jj,ii,lookup[2][mask])] = tmp[local_size*2+item_id] + mask*OMEGA*(d_equ[2] - tmp[local_size*2+item_id]);
+  tmp_cells[I(jj,ii,lookup[3][mask])] = tmp[local_size*3+item_id] + mask*OMEGA*(d_equ[3] - tmp[local_size*3+item_id]);
+  tmp_cells[I(jj,ii,lookup[4][mask])] = tmp[local_size*4+item_id] + mask*OMEGA*(d_equ[4] - tmp[local_size*4+item_id]);
+  tmp_cells[I(jj,ii,lookup[5][mask])] = tmp[local_size*5+item_id] + mask*OMEGA*(d_equ[5] - tmp[local_size*5+item_id]);
+  tmp_cells[I(jj,ii,lookup[6][mask])] = tmp[local_size*6+item_id] + mask*OMEGA*(d_equ[6] - tmp[local_size*6+item_id]);
+  tmp_cells[I(jj,ii,lookup[7][mask])] = tmp[local_size*7+item_id] + mask*OMEGA*(d_equ[7] - tmp[local_size*7+item_id]);
+  tmp_cells[I(jj,ii,lookup[8][mask])] = tmp[local_size*8+item_id] + mask*OMEGA*(d_equ[8] - tmp[local_size*8+item_id]);
   float tot_u = mask * native_sqrt(u_sq) * densinv;
  
   local_avgs[item_id] = tot_u*FREE_CELLS_INV;
