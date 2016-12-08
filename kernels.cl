@@ -1,7 +1,7 @@
-#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+//#pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
 #define NSPEEDS     9
-#define VECSIZE     1
+#define VECSIZE     64
 
 typedef struct
 {
@@ -224,6 +224,7 @@ __kernel void timestep(__global t_speed* restrict cells,
                      __global t_speed* restrict tmp_cells,
                      __global int* restrict obstacles, 
                      int nx, int ny, float omega, float free_cells_inv,
+                     __local float* tmp,
                      __local volatile float* local_avgs,
                      __global float* partial_avgs) //remember to reduce partial_avg in a different kernel
 {
@@ -233,7 +234,6 @@ __kernel void timestep(__global t_speed* restrict cells,
   const float w0 = 0.4444444444444444444444f;  /* weighting factor */
   const float w1 = 0.1111111111111111111111f;  /* weighting factor */
   const float w2 = 0.0277777777777777777778f; /* weighting factor */
-  float tot_u = 0.0f;
 
   const unsigned int lookup[9][2] __attribute__((aligned(32))) = {{0,0},{3,1},{4,2},{1,3},{2,4},{7,5},{8,6},{5,7},{6,8}};
  
@@ -243,190 +243,146 @@ __kernel void timestep(__global t_speed* restrict cells,
   ** are in the scratch-space grid */
   
   int ii = get_global_id(1);
+  int jj = get_global_id(0);
+  int local_ii = get_local_id(1);
+  int local_jj = get_local_id(0);
+  int local_nx = get_local_size(0);
+  int local_ny = get_local_size(1);
+  int local_size  = local_nx*local_ny;
+  int item_id = local_ii * local_nx + local_jj;
+
   //printf("y dimension:%d\n",ii);
  
   int y_n = ii + 1;
-  if(y_n == ny) y_n = 0;
-  int y_s = ii - 1;
-  if(y_s == -1) y_s = ny-1;
+  y_n = (y_n == ny) ? (0) : (y_n);
+  int y_s = (ii == 0) ? (ny-1) : (ii-1);
  
-  int jj = get_global_id(0) * VECSIZE;
+  int x_e = jj + 1;
+  x_e = (x_e >= nx) ? (x_e -= nx) : (x_e);
+  int x_w = (jj == 0) ? (nx - 1) : (jj-1);
+  
+  tmp[local_size*0+item_id] = cells[ii * nx + jj].speeds[0];
+  tmp[local_size*1+item_id] = cells[ii * nx + x_w].speeds[1];
+  tmp[local_size*2+item_id] = cells[y_s * nx + jj].speeds[2];
+  tmp[local_size*3+item_id] = cells[ii * nx + x_e].speeds[3];
+  tmp[local_size*4+item_id] = cells[y_n * nx + jj].speeds[4];
+  tmp[local_size*5+item_id] = cells[y_s * nx + x_w].speeds[5];
+  tmp[local_size*6+item_id] = cells[y_s * nx + x_e].speeds[6];
+  tmp[local_size*7+item_id] = cells[y_n * nx + x_e].speeds[7];
+  tmp[local_size*8+item_id] = cells[y_n * nx + x_w].speeds[8]; 
+
+  
+  float densvec = tmp[local_size*0+item_id];
+  densvec += tmp[local_size*1+item_id];
+  densvec += tmp[local_size*2+item_id];
+  densvec += tmp[local_size*3+item_id];
+  densvec += tmp[local_size*4+item_id];
+  densvec += tmp[local_size*5+item_id];
+  densvec += tmp[local_size*6+item_id];
+  densvec += tmp[local_size*7+item_id];
+  densvec += tmp[local_size*8+item_id];
+  
+  float densinv = 1.0f/densvec;
+  
+
+  float u_x = tmp[local_size*1+item_id] + tmp[local_size*5+item_id];
+  u_x += tmp[local_size*8+item_id];
+  u_x -= tmp[local_size*3+item_id];
+  u_x -= tmp[local_size*6+item_id];
+  u_x -= tmp[local_size*7+item_id];
+  
+  float u_y = tmp[local_size*2+item_id] + tmp[local_size*5+item_id];
+  u_y += tmp[local_size*6+item_id];
+  u_y -= tmp[local_size*4+item_id];
+  u_y -= tmp[local_size*7+item_id];
+  u_y -= tmp[local_size*8+item_id];
+  
+
+  float u_sq = u_x*u_x + u_y*u_y;
  
-  //int start = ii*nx+jj;
-  //int end = start + VECSIZE;
-  //printf("Working from %d to %d\n",start,end);
  
-  /* determine indices of axis-direction neighbours
-  ** respecting periodic boundary conditions (wrap around) */
-  float tmp[VECSIZE*NSPEEDS] __attribute__((aligned(32)));
-  #pragma vector aligned
-  for(int k=0;k<VECSIZE;k++){
-      int x = jj+k;
-      int x_e = x + 1;
-      if(x_e >= nx) x_e -= nx;
-      int x_w = (x == 0) ? (nx - 1) : (x-1);
-      tmp[VECSIZE*0+k] = cells[ii * nx + x].speeds[0];
-      tmp[VECSIZE*1+k] = cells[ii * nx + x_w].speeds[1];
-      tmp[VECSIZE*2+k] = cells[y_s * nx + x].speeds[2];
-      tmp[VECSIZE*3+k] = cells[ii * nx + x_e].speeds[3];
-      tmp[VECSIZE*4+k] = cells[y_n * nx + x].speeds[4];
-      tmp[VECSIZE*5+k] = cells[y_s * nx + x_w].speeds[5];
-      tmp[VECSIZE*6+k] = cells[y_s * nx + x_e].speeds[6];
-      tmp[VECSIZE*7+k] = cells[y_n * nx + x_e].speeds[7];
-      tmp[VECSIZE*8+k] = cells[y_n * nx + x_w].speeds[8];
-      
-  }
+  float uvec[NSPEEDS]; //try aligning
+  uvec[1] =   u_x;
+  uvec[2] =         u_y;
+  uvec[3] = - u_x;
+  uvec[4] =       - u_y;
+  uvec[5] =   u_x + u_y;
+  uvec[6] = - u_x + u_y;
+  uvec[7] = - u_x - u_y;
+  uvec[8] =   u_x - u_y;
+
   
-  float densvec[VECSIZE] __attribute__((aligned(32)));
-  float densinv[VECSIZE] __attribute__((aligned(32)));
+  float ic_sqtimesu[NSPEEDS];
+  ic_sqtimesu[1] = uvec[1]*ic_sq;
+  ic_sqtimesu[2] = uvec[2]*ic_sq;
+  ic_sqtimesu[3] = uvec[3]*ic_sq;
+  ic_sqtimesu[4] = uvec[4]*ic_sq;
+  ic_sqtimesu[5] = uvec[5]*ic_sq;
+  ic_sqtimesu[6] = uvec[6]*ic_sq;
+  ic_sqtimesu[7] = uvec[7]*ic_sq;
+  ic_sqtimesu[8] = uvec[8]*ic_sq;
   
-  #pragma vector aligned
-  for(int k=0;k<VECSIZE;k++){
-      densvec[k] = tmp[VECSIZE*0+k];
-      densvec[k] += tmp[VECSIZE*1+k];
-      densvec[k] += tmp[VECSIZE*2+k];
-      densvec[k] += tmp[VECSIZE*3+k];
-      densvec[k] += tmp[VECSIZE*4+k];
-      densvec[k] += tmp[VECSIZE*5+k];
-      densvec[k] += tmp[VECSIZE*6+k];
-      densvec[k] += tmp[VECSIZE*7+k];
-      densvec[k] += tmp[VECSIZE*8+k];
-      densinv[k] = 1.0f/densvec[k];
-  }
+
+  float ic_sqtimesu_sq[NSPEEDS];
+  ic_sqtimesu_sq[1] = ic_sqtimesu[1] * uvec[1];
+  ic_sqtimesu_sq[2] = ic_sqtimesu[2] * uvec[2];
+  ic_sqtimesu_sq[3] = ic_sqtimesu[3] * uvec[3];
+  ic_sqtimesu_sq[4] = ic_sqtimesu[4] * uvec[4];
+  ic_sqtimesu_sq[5] = ic_sqtimesu[5] * uvec[5];
+  ic_sqtimesu_sq[6] = ic_sqtimesu[6] * uvec[6];
+  ic_sqtimesu_sq[7] = ic_sqtimesu[7] * uvec[7];
+  ic_sqtimesu_sq[8] = ic_sqtimesu[8] * uvec[8];
+
   
-  float u_x[VECSIZE] __attribute__((aligned(32)));
-  float u_y[VECSIZE] __attribute__((aligned(32)));
+  float d_equ[NSPEEDS];
+  d_equ[0] = w0 * (densvec - 0.5f*densinv*ic_sq*u_sq);
+  d_equ[1] = w1 * (densvec + ic_sqtimesu[1] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[1]-u_sq) );
+  d_equ[2] = w1 * (densvec + ic_sqtimesu[2] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[2]-u_sq) );
+  d_equ[3] = w1 * (densvec + ic_sqtimesu[3] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[3]-u_sq) );
+  d_equ[4] = w1 * (densvec + ic_sqtimesu[4] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[4]-u_sq) );
+  d_equ[5] = w2 * (densvec + ic_sqtimesu[5] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[5]-u_sq) );
+  d_equ[6] = w2 * (densvec + ic_sqtimesu[6] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[6]-u_sq) );
+  d_equ[7] = w2 * (densvec + ic_sqtimesu[7] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[7]-u_sq) );
+  d_equ[8] = w2 * (densvec + ic_sqtimesu[8] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[8]-u_sq) );
   
-  #pragma vector aligned
-  for(int k=0;k<VECSIZE;k++)
-  {
-      u_x[k] = tmp[VECSIZE*1+k] + tmp[VECSIZE*5+k];
-      u_x[k] += tmp[VECSIZE*8+k];
-      u_x[k] -= tmp[VECSIZE*3+k];
-      u_x[k] -= tmp[VECSIZE*6+k];
-      u_x[k] -= tmp[VECSIZE*7+k];
-      //u_x[k] *= densinv[k];
-      u_y[k] = tmp[VECSIZE*2+k] + tmp[VECSIZE*5+k];
-      u_y[k] += tmp[VECSIZE*6+k];
-      u_y[k] -= tmp[VECSIZE*4+k];
-      u_y[k] -= tmp[VECSIZE*7+k];
-      u_y[k] -= tmp[VECSIZE*8+k];
-      //u_y[k] *= densinv[k];
-  }
+  int mask = obstacles[ii*nx+jj]^1;
   
-  float u_sq[VECSIZE] __attribute__((aligned(32)));
-  
-  #pragma vector aligned
-  for(int k=0;k<VECSIZE;k++)
-  {
-      u_sq[k] = u_x[k]*u_x[k] + u_y[k]*u_y[k];
-  }
-  
-  float uvec[NSPEEDS*VECSIZE] __attribute__((aligned(32)));
-  #pragma vector aligned
-  for(int k=0;k<VECSIZE;k++)
-  {
-      uvec[VECSIZE*1+k] =   u_x[k];
-      uvec[VECSIZE*2+k] =            u_y[k];
-      uvec[VECSIZE*3+k] = - u_x[k];
-      uvec[VECSIZE*4+k] =          - u_y[k];
-      uvec[VECSIZE*5+k] =   u_x[k] + u_y[k];
-      uvec[VECSIZE*6+k] = - u_x[k] + u_y[k];
-      uvec[VECSIZE*7+k] = - u_x[k] - u_y[k];
-      uvec[VECSIZE*8+k] =   u_x[k] - u_y[k];
-  }
-  
-  float ic_sqtimesu[NSPEEDS*VECSIZE] __attribute__((aligned(32)));
-  #pragma vector aligned
-  for(int k=0;k<VECSIZE;k++)
-  {
-      ic_sqtimesu[VECSIZE*1+k] = uvec[VECSIZE*1+k]*ic_sq;
-      ic_sqtimesu[VECSIZE*2+k] = uvec[VECSIZE*2+k]*ic_sq;
-      ic_sqtimesu[VECSIZE*3+k] = uvec[VECSIZE*3+k]*ic_sq;
-      ic_sqtimesu[VECSIZE*4+k] = uvec[VECSIZE*4+k]*ic_sq;
-      ic_sqtimesu[VECSIZE*5+k] = uvec[VECSIZE*5+k]*ic_sq;
-      ic_sqtimesu[VECSIZE*6+k] = uvec[VECSIZE*6+k]*ic_sq;
-      ic_sqtimesu[VECSIZE*7+k] = uvec[VECSIZE*7+k]*ic_sq;
-      ic_sqtimesu[VECSIZE*8+k] = uvec[VECSIZE*8+k]*ic_sq;
-  }
-  
-  float ic_sqtimesu_sq[NSPEEDS*VECSIZE] __attribute__((aligned(32)));
-  #pragma vector aligned
-  for(int k=0;k<VECSIZE;k++)
-  {
-      ic_sqtimesu_sq[VECSIZE*1+k] = ic_sqtimesu[VECSIZE*1+k] * uvec[VECSIZE*1+k];
-      ic_sqtimesu_sq[VECSIZE*2+k] = ic_sqtimesu[VECSIZE*2+k] * uvec[VECSIZE*2+k];
-      ic_sqtimesu_sq[VECSIZE*3+k] = ic_sqtimesu[VECSIZE*3+k] * uvec[VECSIZE*3+k];
-      ic_sqtimesu_sq[VECSIZE*4+k] = ic_sqtimesu[VECSIZE*4+k] * uvec[VECSIZE*4+k];
-      ic_sqtimesu_sq[VECSIZE*5+k] = ic_sqtimesu[VECSIZE*5+k] * uvec[VECSIZE*5+k];
-      ic_sqtimesu_sq[VECSIZE*6+k] = ic_sqtimesu[VECSIZE*6+k] * uvec[VECSIZE*6+k];
-      ic_sqtimesu_sq[VECSIZE*7+k] = ic_sqtimesu[VECSIZE*7+k] * uvec[VECSIZE*7+k];
-      ic_sqtimesu_sq[VECSIZE*8+k] = ic_sqtimesu[VECSIZE*8+k] * uvec[VECSIZE*8+k];
-  }
-  
-  float d_equ[NSPEEDS*VECSIZE] __attribute__((aligned(32)));
-  #pragma vector aligned
-  for(int k=0;k<VECSIZE;k++)
-  {
-      d_equ[VECSIZE*0+k] = w0 * (densvec[k] - 0.5f*densinv[k]*ic_sq*u_sq[k]);
-      d_equ[VECSIZE*1+k] = w1 * (densvec[k] + ic_sqtimesu[VECSIZE*1+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*1+k]-u_sq[k]) );
-      d_equ[VECSIZE*2+k] = w1 * (densvec[k] + ic_sqtimesu[VECSIZE*2+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*2+k]-u_sq[k]) );
-      d_equ[VECSIZE*3+k] = w1 * (densvec[k] + ic_sqtimesu[VECSIZE*3+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*3+k]-u_sq[k]) );
-      d_equ[VECSIZE*4+k] = w1 * (densvec[k] + ic_sqtimesu[VECSIZE*4+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*4+k]-u_sq[k]) );
-      d_equ[VECSIZE*5+k] = w2 * (densvec[k] + ic_sqtimesu[VECSIZE*5+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*5+k]-u_sq[k]) );
-      d_equ[VECSIZE*6+k] = w2 * (densvec[k] + ic_sqtimesu[VECSIZE*6+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*6+k]-u_sq[k]) );
-      d_equ[VECSIZE*7+k] = w2 * (densvec[k] + ic_sqtimesu[VECSIZE*7+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*7+k]-u_sq[k]) );
-      d_equ[VECSIZE*8+k] = w2 * (densvec[k] + ic_sqtimesu[VECSIZE*8+k] + 0.5f * densinv[k]*ic_sq * (ic_sqtimesu_sq[VECSIZE*8+k]-u_sq[k]) );
-  }
-  
-  int mask = obstacles[ii*nx+jj/*+k*/]^1;
-  
-  #pragma vector aligned
-  for(int k=0;k<VECSIZE;k++)
-  {
-      tmp_cells[ii * nx + jj + k].speeds[lookup[0][mask]] = tmp[VECSIZE*0+k] + mask*omega*(d_equ[VECSIZE*0+k] - tmp[VECSIZE*0+k]);
-      tmp_cells[ii * nx + jj + k].speeds[lookup[1][mask]] = tmp[VECSIZE*1+k] + mask*omega*(d_equ[VECSIZE*1+k] - tmp[VECSIZE*1+k]);
-      tmp_cells[ii * nx + jj + k].speeds[lookup[2][mask]] = tmp[VECSIZE*2+k] + mask*omega*(d_equ[VECSIZE*2+k] - tmp[VECSIZE*2+k]);
-      tmp_cells[ii * nx + jj + k].speeds[lookup[3][mask]] = tmp[VECSIZE*3+k] + mask*omega*(d_equ[VECSIZE*3+k] - tmp[VECSIZE*3+k]);
-      tmp_cells[ii * nx + jj + k].speeds[lookup[4][mask]] = tmp[VECSIZE*4+k] + mask*omega*(d_equ[VECSIZE*4+k] - tmp[VECSIZE*4+k]);
-      tmp_cells[ii * nx + jj + k].speeds[lookup[5][mask]] = tmp[VECSIZE*5+k] + mask*omega*(d_equ[VECSIZE*5+k] - tmp[VECSIZE*5+k]);
-      tmp_cells[ii * nx + jj + k].speeds[lookup[6][mask]] = tmp[VECSIZE*6+k] + mask*omega*(d_equ[VECSIZE*6+k] - tmp[VECSIZE*6+k]);
-      tmp_cells[ii * nx + jj + k].speeds[lookup[7][mask]] = tmp[VECSIZE*7+k] + mask*omega*(d_equ[VECSIZE*7+k] - tmp[VECSIZE*7+k]);
-      tmp_cells[ii * nx + jj + k].speeds[lookup[8][mask]] = tmp[VECSIZE*8+k] + mask*omega*(d_equ[VECSIZE*8+k] - tmp[VECSIZE*8+k]);
-      tot_u += mask * sqrt(u_sq[k]) * densinv[k];
-  }
+  tmp_cells[ii * nx + jj].speeds[lookup[0][mask]] = tmp[local_size*0+item_id] + mask*omega*(d_equ[0] - tmp[local_size*0+item_id]);
+  tmp_cells[ii * nx + jj].speeds[lookup[1][mask]] = tmp[local_size*1+item_id] + mask*omega*(d_equ[1] - tmp[local_size*1+item_id]);
+  tmp_cells[ii * nx + jj].speeds[lookup[2][mask]] = tmp[local_size*2+item_id] + mask*omega*(d_equ[2] - tmp[local_size*2+item_id]);
+  tmp_cells[ii * nx + jj].speeds[lookup[3][mask]] = tmp[local_size*3+item_id] + mask*omega*(d_equ[3] - tmp[local_size*3+item_id]);
+  tmp_cells[ii * nx + jj].speeds[lookup[4][mask]] = tmp[local_size*4+item_id] + mask*omega*(d_equ[4] - tmp[local_size*4+item_id]);
+  tmp_cells[ii * nx + jj].speeds[lookup[5][mask]] = tmp[local_size*5+item_id] + mask*omega*(d_equ[5] - tmp[local_size*5+item_id]);
+  tmp_cells[ii * nx + jj].speeds[lookup[6][mask]] = tmp[local_size*6+item_id] + mask*omega*(d_equ[6] - tmp[local_size*6+item_id]);
+  tmp_cells[ii * nx + jj].speeds[lookup[7][mask]] = tmp[local_size*7+item_id] + mask*omega*(d_equ[7] - tmp[local_size*7+item_id]);
+  tmp_cells[ii * nx + jj].speeds[lookup[8][mask]] = tmp[local_size*8+item_id] + mask*omega*(d_equ[8] - tmp[local_size*8+item_id]);
+  float tot_u = mask * native_sqrt(u_sq) * densinv;
  
-  int local_size_X = get_local_size(0);
-  int local_size_Y = get_local_size(1); 
-  int local_id_X = get_local_id(0);
-  int local_id_Y = get_local_id(1);
-  int itemID = local_id_Y * local_size_X + local_id_X;
-  local_avgs[itemID] = tot_u*free_cells_inv;
+  local_avgs[item_id] = tot_u*free_cells_inv;
   barrier(CLK_LOCAL_MEM_FENCE);
   
-  int local_size = local_size_X * local_size_Y;
   int group_id_X = get_group_id(0);
   int group_id_Y = get_group_id(1);
   int num_groups_X = get_num_groups(0);
   int num_groups_Y = get_num_groups(1);
   int groupID = group_id_Y * num_groups_X + group_id_X;
-  partial_avgs[groupID] = 0.0f;
+
   for(unsigned int s=local_size/2;s>32;s>>=1){
-    if(itemID<s){
-        local_avgs[itemID] += local_avgs[itemID + s];
+    if(item_id<s){
+        local_avgs[item_id] += local_avgs[item_id + s];
     }
     barrier(CLK_LOCAL_MEM_FENCE);
   }
   //No need to synchronise in the last warp
-  if(itemID < 32){
-    local_avgs[itemID] += local_avgs[itemID + 32];
-    local_avgs[itemID] += local_avgs[itemID + 16];
-    local_avgs[itemID] += local_avgs[itemID + 8];
-    local_avgs[itemID] += local_avgs[itemID + 4];
-    local_avgs[itemID] += local_avgs[itemID + 2];
-    local_avgs[itemID] += local_avgs[itemID + 1];
+  if(item_id < 32){
+    local_avgs[item_id] += local_avgs[item_id + 32];
+    local_avgs[item_id] += local_avgs[item_id + 16];
+    local_avgs[item_id] += local_avgs[item_id + 8];
+    local_avgs[item_id] += local_avgs[item_id + 4];
+    local_avgs[item_id] += local_avgs[item_id + 2];
+    local_avgs[item_id] += local_avgs[item_id + 1];
   }
-  if(itemID == 0) partial_avgs[groupID] = local_avgs[0];
+  if(item_id == 0) partial_avgs[groupID] = local_avgs[0];
  
 }
 
@@ -452,15 +408,10 @@ kernel void reduce(global float* partial_avgs,
     //No need to synchronise in the last warp
     if(local_id < 32){
         local_partial_avgs[local_id] += local_partial_avgs[local_id + 32];
-    //    barrier(CLK_LOCAL_MEM_FENCE);
         local_partial_avgs[local_id] += local_partial_avgs[local_id + 16];
-    //    barrier(CLK_LOCAL_MEM_FENCE);
         local_partial_avgs[local_id] += local_partial_avgs[local_id + 8];
-    //    barrier(CLK_LOCAL_MEM_FENCE);
         local_partial_avgs[local_id] += local_partial_avgs[local_id + 4];
-    //    barrier(CLK_LOCAL_MEM_FENCE);
         local_partial_avgs[local_id] += local_partial_avgs[local_id + 2];
-    //    barrier(CLK_LOCAL_MEM_FENCE);
         local_partial_avgs[local_id] += local_partial_avgs[local_id + 1];
     }
 

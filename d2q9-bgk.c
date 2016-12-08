@@ -72,8 +72,8 @@
 #define NUMTHREADS      1
 
 //Vector size
-#define VECSIZE 1
-//#define SINGLE_WRKGRP_REDUCT
+#define VECSIZE 64
+#define SINGLE_WRKGRP_REDUCT
 
 
 /* struct to hold the parameter values */
@@ -310,6 +310,7 @@ inline void accelerate_flow(const t_param params, cl_mem* d_cells, t_ocl ocl)
 inline void timestep(const t_param params, cl_mem* d_cells, cl_mem* d_tmp_cells, t_ocl ocl)
 {
     cl_int err;
+    size_t work_group_size = ocl.work_group_size_X*ocl.work_group_size_Y;
 
     // Set kernel arguments
     err = clSetKernelArg(ocl.timestep, 0, sizeof(cl_mem), d_cells);
@@ -326,13 +327,14 @@ inline void timestep(const t_param params, cl_mem* d_cells, cl_mem* d_tmp_cells,
     checkError(err, "setting timestep arg 5",__LINE__);
     err = clSetKernelArg(ocl.timestep, 6, sizeof(cl_float), &params.free_cells_inv);
     checkError(err, "setting timestep arg 6",__LINE__);
-    size_t work_group_size = ocl.work_group_size_X*ocl.work_group_size_Y;
-    err = clSetKernelArg(ocl.timestep, 7, sizeof(float)*work_group_size, NULL); //local
+    err = clSetKernelArg(ocl.timestep, 7, sizeof(float)*work_group_size*NSPEEDS, NULL); //tmp
     checkError(err, "setting timestep arg 7",__LINE__);
-    err = clSetKernelArg(ocl.timestep, 8, sizeof(cl_mem), &ocl.partial_avgs);
+    err = clSetKernelArg(ocl.timestep, 8, sizeof(float)*work_group_size, NULL); //local_avgs
     checkError(err, "setting timestep arg 8",__LINE__);
+    err = clSetKernelArg(ocl.timestep, 9, sizeof(cl_mem), &ocl.partial_avgs);
+    checkError(err, "setting timestep arg 9",__LINE__);
 
-    size_t global[2] = {params.nx/VECSIZE, params.ny};
+    size_t global[2] = {params.nx, params.ny};
     size_t local[2] = {ocl.work_group_size_X, ocl.work_group_size_Y};
 
     err = clEnqueueNDRangeKernel(ocl.queue, ocl.timestep, 2, NULL, global, local, 0, NULL, NULL);
@@ -361,10 +363,11 @@ inline void reduce(t_ocl ocl, int tt){
     size_t global[1];
     size_t local[1];
     
-    #ifdef SINGLE_WRKGRP_REDUCT
+    #ifndef SINGLE_WRKGRP_REDUCT
 
     while(global_size != 1)
     {
+        printf("global_size: %lu\n",global_size);
         global_size = global_size / 2;
         global[0] = global_size;
         if(global_size >= 32)
@@ -852,7 +855,7 @@ int initialise(const char* paramfile, const char* obstaclefile,
   checkError(err, "creating program", __LINE__);
 
   // Build OpenCL program
-  err = clBuildProgram(ocl->program, 1, &ocl->device, "", NULL, NULL);
+  err = clBuildProgram(ocl->program, 1, &ocl->device, "-cl-denorms-are-zero -cl-single-precision-constant -cl-fast-relaxed-math -cl-strict-aliasing", NULL, NULL);
   if (err == CL_BUILD_PROGRAM_FAILURE)
   {
     size_t sz;
@@ -876,18 +879,18 @@ int initialise(const char* paramfile, const char* obstaclefile,
   ocl->reduce = clCreateKernel(ocl->program, "reduce", &err);
   checkError(err, "creating reduce kernel", __LINE__);
 
-  size_t work_group_size = 0;
-  err = clGetKernelWorkGroupInfo(ocl->timestep, ocl->device, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &work_group_size, NULL);
-  checkError(err, "getting kernel work group info", __LINE__); work_group_size=params->nx;
-  printf("Work group size(CL_KERNEL_WORK_GROUP_SIZE): %lu\n",work_group_size);
+  //size_t work_group_size = 0;
+  //err = clGetKernelWorkGroupInfo(ocl->timestep, ocl->device, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &work_group_size, NULL);
+  //checkError(err, "getting kernel work group info", __LINE__); work_group_size=VECSIZE;
+  //printf("Work group size(CL_KERNEL_WORK_GROUP_SIZE): %lu\n",work_group_size);
 
   //err = clGetKernelWorkGroupInfo(ocl->timestep, ocl->device, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, sizeof(size_t), &work_group_size, NULL);
   //checkError(err, "getting kernel work group info", __LINE__);
   //printf("Work group size(CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE): %lu\n", work_group_size);
 
-  ocl->work_group_size_X = params->nx / VECSIZE; //each work item will process VECSIZE cells
-  ocl->work_group_size_Y = work_group_size / ocl->work_group_size_X;
-  ocl->nwork_groups_X = (params->nx/VECSIZE)/ocl->work_group_size_X;
+  ocl->work_group_size_X = 64; //each work item will process VECSIZE cells
+  ocl->work_group_size_Y = 1;
+  ocl->nwork_groups_X = params->nx / ocl->work_group_size_X;
   ocl->nwork_groups_Y = params->ny / ocl->work_group_size_Y;
 
   printf("%dx%d workgroups with %dx%d items each\n",ocl->nwork_groups_Y, ocl->nwork_groups_X,
