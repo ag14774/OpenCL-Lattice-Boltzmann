@@ -26,20 +26,21 @@ kernel void accelerate_flow(global t_speed* cells,
 
   /* if the cell is not occupied and
   ** we don't send a negative density */
-  int mask = obstacles[ii * nx + jj]^1;
-  int mask1 = ((cells[ii * nx + jj].speeds[3] - w1)>0.0f) ? 1 : 0;
-  int mask2 = ((cells[ii * nx + jj].speeds[6] - w2)>0.0f) ? 1 : 0;
-  int mask3 = ((cells[ii * nx + jj].speeds[7] - w2)>0.0f) ? 1 : 0;
+  int index = mul24(ii,nx) + jj;
+  int mask = obstacles[index]^1;
+  int mask1 = ((cells[index].speeds[3] - w1)>0.0f) ? 1 : 0;
+  int mask2 = ((cells[index].speeds[6] - w2)>0.0f) ? 1 : 0;
+  int mask3 = ((cells[index].speeds[7] - w2)>0.0f) ? 1 : 0;
   mask = mask & mask1 & mask2 & mask3;
 
   /* increase 'east-side' densities */
-  cells[ii * nx + jj].speeds[1] = mad(mask,w1,cells[ii * nx + jj].speeds[1]);
-  cells[ii * nx + jj].speeds[5] = mad(mask,w2,cells[ii * nx + jj].speeds[5]);
-  cells[ii * nx + jj].speeds[8] = mad(mask,w2,cells[ii * nx + jj].speeds[8]);
+  cells[index].speeds[1] = mad(mask,w1,cells[index].speeds[1]);
+  cells[index].speeds[5] = mad(mask,w2,cells[index].speeds[5]);
+  cells[index].speeds[8] = mad(mask,w2,cells[index].speeds[8]);
   /* decrease 'west-side' densities */
-  cells[ii * nx + jj].speeds[3] = mad(mask,-w1,cells[ii * nx + jj].speeds[3]);
-  cells[ii * nx + jj].speeds[6] = mad(mask,-w2,cells[ii * nx + jj].speeds[6]);
-  cells[ii * nx + jj].speeds[7] = mad(mask,-w2,cells[ii * nx + jj].speeds[7]);
+  cells[index].speeds[3] = mad(mask,-w1,cells[index].speeds[3]);
+  cells[index].speeds[6] = mad(mask,-w2,cells[index].speeds[6]);
+  cells[index].speeds[7] = mad(mask,-w2,cells[index].speeds[7]);
   
 }
 
@@ -249,8 +250,8 @@ __kernel void timestep(__global t_speed* restrict cells,
   int local_jj = get_local_id(0);
   int local_nx = get_local_size(0);
   int local_ny = get_local_size(1);
-  int local_size  = local_nx*local_ny;
-  int item_id = local_ii * local_nx + local_jj;
+  int local_size  = mul24(local_nx,local_ny);
+  int item_id = mul24(local_ii, local_nx) + local_jj;
 
   //printf("y dimension:%d\n",ii);
  
@@ -262,15 +263,15 @@ __kernel void timestep(__global t_speed* restrict cells,
   x_e = (x_e >= nx) ? (x_e -= nx) : (x_e);
   int x_w = (jj == 0) ? (nx - 1) : (jj-1);
   
-  tmp[local_size*0+item_id] = cells[ii * nx + jj].speeds[0];
-  tmp[local_size*1+item_id] = cells[ii * nx + x_w].speeds[1];
-  tmp[local_size*2+item_id] = cells[y_s * nx + jj].speeds[2];
-  tmp[local_size*3+item_id] = cells[ii * nx + x_e].speeds[3];
-  tmp[local_size*4+item_id] = cells[y_n * nx + jj].speeds[4];
-  tmp[local_size*5+item_id] = cells[y_s * nx + x_w].speeds[5];
-  tmp[local_size*6+item_id] = cells[y_s * nx + x_e].speeds[6];
-  tmp[local_size*7+item_id] = cells[y_n * nx + x_e].speeds[7];
-  tmp[local_size*8+item_id] = cells[y_n * nx + x_w].speeds[8]; 
+  tmp[local_size*0+item_id] = cells[mul24(ii, nx) + jj].speeds[0];
+  tmp[local_size*1+item_id] = cells[mul24(ii, nx) + x_w].speeds[1];
+  tmp[local_size*2+item_id] = cells[mul24(y_s, nx) + jj].speeds[2];
+  tmp[local_size*3+item_id] = cells[mul24(ii, nx) + x_e].speeds[3];
+  tmp[local_size*4+item_id] = cells[mul24(y_n, nx) + jj].speeds[4];
+  tmp[local_size*5+item_id] = cells[mul24(y_s, nx) + x_w].speeds[5];
+  tmp[local_size*6+item_id] = cells[mul24(y_s, nx) + x_e].speeds[6];
+  tmp[local_size*7+item_id] = cells[mul24(y_n, nx) + x_e].speeds[7];
+  tmp[local_size*8+item_id] = cells[mul24(y_n, nx) + x_w].speeds[8]; 
 
   
   float densvec = tmp[local_size*0+item_id];
@@ -346,17 +347,17 @@ __kernel void timestep(__global t_speed* restrict cells,
   d_equ[7] = w2 * (densvec + ic_sqtimesu[7] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[7]-u_sq) );
   d_equ[8] = w2 * (densvec + ic_sqtimesu[8] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[8]-u_sq) );
   
-  int mask = obstacles[ii*nx+jj]^1;
+  int mask = obstacles[mul24(ii,nx)+jj]^1;
   
-  tmp_cells[ii * nx + jj].speeds[lookup[0][mask]] = tmp[local_size*0+item_id] + mask*omega*(d_equ[0] - tmp[local_size*0+item_id]);
-  tmp_cells[ii * nx + jj].speeds[lookup[1][mask]] = tmp[local_size*1+item_id] + mask*omega*(d_equ[1] - tmp[local_size*1+item_id]);
-  tmp_cells[ii * nx + jj].speeds[lookup[2][mask]] = tmp[local_size*2+item_id] + mask*omega*(d_equ[2] - tmp[local_size*2+item_id]);
-  tmp_cells[ii * nx + jj].speeds[lookup[3][mask]] = tmp[local_size*3+item_id] + mask*omega*(d_equ[3] - tmp[local_size*3+item_id]);
-  tmp_cells[ii * nx + jj].speeds[lookup[4][mask]] = tmp[local_size*4+item_id] + mask*omega*(d_equ[4] - tmp[local_size*4+item_id]);
-  tmp_cells[ii * nx + jj].speeds[lookup[5][mask]] = tmp[local_size*5+item_id] + mask*omega*(d_equ[5] - tmp[local_size*5+item_id]);
-  tmp_cells[ii * nx + jj].speeds[lookup[6][mask]] = tmp[local_size*6+item_id] + mask*omega*(d_equ[6] - tmp[local_size*6+item_id]);
-  tmp_cells[ii * nx + jj].speeds[lookup[7][mask]] = tmp[local_size*7+item_id] + mask*omega*(d_equ[7] - tmp[local_size*7+item_id]);
-  tmp_cells[ii * nx + jj].speeds[lookup[8][mask]] = tmp[local_size*8+item_id] + mask*omega*(d_equ[8] - tmp[local_size*8+item_id]);
+  tmp_cells[mul24(ii,nx) + jj].speeds[lookup[0][mask]] = tmp[local_size*0+item_id] + mask*omega*(d_equ[0] - tmp[local_size*0+item_id]);
+  tmp_cells[mul24(ii,nx) + jj].speeds[lookup[1][mask]] = tmp[local_size*1+item_id] + mask*omega*(d_equ[1] - tmp[local_size*1+item_id]);
+  tmp_cells[mul24(ii,nx) + jj].speeds[lookup[2][mask]] = tmp[local_size*2+item_id] + mask*omega*(d_equ[2] - tmp[local_size*2+item_id]);
+  tmp_cells[mul24(ii,nx) + jj].speeds[lookup[3][mask]] = tmp[local_size*3+item_id] + mask*omega*(d_equ[3] - tmp[local_size*3+item_id]);
+  tmp_cells[mul24(ii,nx) + jj].speeds[lookup[4][mask]] = tmp[local_size*4+item_id] + mask*omega*(d_equ[4] - tmp[local_size*4+item_id]);
+  tmp_cells[mul24(ii,nx) + jj].speeds[lookup[5][mask]] = tmp[local_size*5+item_id] + mask*omega*(d_equ[5] - tmp[local_size*5+item_id]);
+  tmp_cells[mul24(ii,nx) + jj].speeds[lookup[6][mask]] = tmp[local_size*6+item_id] + mask*omega*(d_equ[6] - tmp[local_size*6+item_id]);
+  tmp_cells[mul24(ii,nx) + jj].speeds[lookup[7][mask]] = tmp[local_size*7+item_id] + mask*omega*(d_equ[7] - tmp[local_size*7+item_id]);
+  tmp_cells[mul24(ii,nx) + jj].speeds[lookup[8][mask]] = tmp[local_size*8+item_id] + mask*omega*(d_equ[8] - tmp[local_size*8+item_id]);
   float tot_u = mask * native_sqrt(u_sq) * densinv;
  
   local_avgs[item_id] = tot_u*free_cells_inv;
@@ -366,7 +367,7 @@ __kernel void timestep(__global t_speed* restrict cells,
   int group_id_Y = get_group_id(1);
   int num_groups_X = get_num_groups(0);
   int num_groups_Y = get_num_groups(1);
-  int groupID = group_id_Y * num_groups_X + group_id_X;
+  int groupID = mul24(group_id_Y, num_groups_X) + group_id_X;
 
   for(unsigned int s=local_size/2;s>32;s>>=1){
     if(item_id<s){
