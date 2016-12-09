@@ -191,7 +191,7 @@ int main(int argc, char* argv[])
 
   /* initialise our data structures and load values from file */
   initialise(paramfile, obstaclefile, &params, &cells, &obstacles, &av_vels, &ocl);
-  /* iterate for maxIters timesteps */
+
   gettimeofday(&timstr, NULL);
   tic = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
 
@@ -206,6 +206,9 @@ int main(int argc, char* argv[])
     ocl.queue, ocl.obstacles, CL_TRUE, 0,
     sizeof(cl_int) * params.nx * params.ny, obstacles, 0, NULL, NULL);
   checkError(err, "writing obstacles data", __LINE__);
+  
+  //gettimeofday(&timstr, NULL);
+  //tic = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
 
   cl_mem* d_cells_ptrs[2];
   d_cells_ptrs[0] = &ocl.cells;
@@ -230,6 +233,14 @@ int main(int argc, char* argv[])
     curr_write ^= 1;
     
   }
+
+  //gettimeofday(&timstr, NULL);
+  //toc = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
+  //getrusage(RUSAGE_SELF, &ru);
+  //timstr = ru.ru_utime;
+  //usrtim = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
+  //timstr = ru.ru_stime;
+  //systim = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
 
   // Read cells from device
   err = clEnqueueReadBuffer(
@@ -323,8 +334,6 @@ inline void reduce(t_ocl ocl, int tt){
     // Set kernel arguments
     err = clSetKernelArg(ocl.reduce, 0, sizeof(cl_mem), &ocl.partial_avgs);
     checkError(err, "setting reduce arg 0",__LINE__);
-    //err = clSetKernelArg(ocl.reduce, 1, sizeof(float), NULL);
-    //checkError(err, "setting reduce arg 1",__LINE__);
     err = clSetKernelArg(ocl.reduce, 2, sizeof(cl_mem), &ocl.avgs);
     checkError(err, "setting reduce arg 2",__LINE__);
     err = clSetKernelArg(ocl.reduce, 3, sizeof(cl_int), &tt);
@@ -649,7 +658,7 @@ int initialise(const char* paramfile, const char* obstaclefile,
   //checkError(err, "getting kernel work group info", __LINE__);
   //printf("Work group size(CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE): %lu\n", work_group_size);
 
-  ocl->work_group_size_X = 64; //each work item will process VECSIZE cells
+  ocl->work_group_size_X = 128; //each work item will process VECSIZE cells
   ocl->work_group_size_Y = 1;
   ocl->nwork_groups_X = params->nx / ocl->work_group_size_X;
   ocl->nwork_groups_Y = params->ny / ocl->work_group_size_Y;
@@ -669,7 +678,7 @@ int initialise(const char* paramfile, const char* obstaclefile,
   checkError(err, "creating tmp_cells buffer", __LINE__);
 
   ocl->obstacles = clCreateBuffer(
-    ocl->context, CL_MEM_READ_WRITE,
+    ocl->context, CL_MEM_READ_ONLY,
     sizeof(cl_int) * params->nx * params->ny, NULL, &err);
   checkError(err, "creating obstacles buffer", __LINE__);
 
@@ -679,10 +688,9 @@ int initialise(const char* paramfile, const char* obstaclefile,
   checkError(err, "creating partial_avgs buffer", __LINE__);
 
   ocl->avgs = clCreateBuffer(
-    ocl->context, CL_MEM_READ_WRITE,
+    ocl->context, CL_MEM_WRITE_ONLY,
     sizeof(cl_float) * params->maxIters, NULL, &err);
   checkError(err, "creating avgs buffer", __LINE__);
-
 
   return EXIT_SUCCESS;
 }
