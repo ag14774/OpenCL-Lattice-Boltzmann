@@ -42,7 +42,6 @@ kernel void accelerate_flow(global float* cells,
 __kernel void timestep(__global float* restrict cells,
                      __global float* restrict tmp_cells,
                      __global int* restrict obstacles, 
-                     __local float* tmp,
                      __local float* local_avgs,
                      __global float* partial_avgs) //remember to reduce partial_avg in a different kernel
 {
@@ -70,6 +69,8 @@ __kernel void timestep(__global float* restrict cells,
   int item_id = mul24(local_ii, local_nx) + local_jj;
 
   //printf("y dimension:%d\n",ii);
+
+  float tmp[NSPEEDS];
  
   int y_n = ii + 1;
   y_n = (y_n == NY) ? (0) : (y_n);
@@ -79,41 +80,41 @@ __kernel void timestep(__global float* restrict cells,
   x_e = (x_e >= NX) ? (x_e -= NX) : (x_e);
   int x_w = (jj == 0) ? (NX - 1) : (jj-1);
   
-  tmp[local_size*0+item_id] = cells[ I(jj ,ii ,0) ];
-  tmp[local_size*1+item_id] = cells[ I(x_w,ii ,1) ];
-  tmp[local_size*2+item_id] = cells[ I(jj ,y_s,2) ];
-  tmp[local_size*3+item_id] = cells[ I(x_e,ii ,3) ];
-  tmp[local_size*4+item_id] = cells[ I(jj ,y_n,4) ];
-  tmp[local_size*5+item_id] = cells[ I(x_w,y_s,5) ];
-  tmp[local_size*6+item_id] = cells[ I(x_e,y_s,6) ];
-  tmp[local_size*7+item_id] = cells[ I(x_e,y_n,7) ];
-  tmp[local_size*8+item_id] = cells[ I(x_w,y_n,8) ]; 
+  tmp[0] = cells[ I(jj ,ii ,0) ];
+  tmp[1] = cells[ I(x_w,ii ,1) ];
+  tmp[2] = cells[ I(jj ,y_s,2) ];
+  tmp[3] = cells[ I(x_e,ii ,3) ];
+  tmp[4] = cells[ I(jj ,y_n,4) ];
+  tmp[5] = cells[ I(x_w,y_s,5) ];
+  tmp[6] = cells[ I(x_e,y_s,6) ];
+  tmp[7] = cells[ I(x_e,y_n,7) ];
+  tmp[8] = cells[ I(x_w,y_n,8) ]; 
 
   
-  float densvec = tmp[local_size*0+item_id];
-  densvec += tmp[local_size*1+item_id];
-  densvec += tmp[local_size*2+item_id];
-  densvec += tmp[local_size*3+item_id];
-  densvec += tmp[local_size*4+item_id];
-  densvec += tmp[local_size*5+item_id];
-  densvec += tmp[local_size*6+item_id];
-  densvec += tmp[local_size*7+item_id];
-  densvec += tmp[local_size*8+item_id];
+  float densvec = tmp[0];
+  densvec += tmp[1];
+  densvec += tmp[2];
+  densvec += tmp[3];
+  densvec += tmp[4];
+  densvec += tmp[5];
+  densvec += tmp[6];
+  densvec += tmp[7];
+  densvec += tmp[8];
   
   float densinv = native_recip(densvec);
   
 
-  float u_x = tmp[local_size*1+item_id] + tmp[local_size*5+item_id];
-  u_x += tmp[local_size*8+item_id];
-  u_x -= tmp[local_size*3+item_id];
-  u_x -= tmp[local_size*6+item_id];
-  u_x -= tmp[local_size*7+item_id];
+  float u_x = tmp[1] + tmp[5];
+  u_x += tmp[8];
+  u_x -= tmp[3];
+  u_x -= tmp[6];
+  u_x -= tmp[7];
   
-  float u_y = tmp[local_size*2+item_id] + tmp[local_size*5+item_id];
-  u_y += tmp[local_size*6+item_id];
-  u_y -= tmp[local_size*4+item_id];
-  u_y -= tmp[local_size*7+item_id];
-  u_y -= tmp[local_size*8+item_id];
+  float u_y = tmp[2] + tmp[5];
+  u_y += tmp[6];
+  u_y -= tmp[4];
+  u_y -= tmp[7];
+  u_y -= tmp[8];
   
 
   float u_sq = u_x*u_x + u_y*u_y;
@@ -165,15 +166,15 @@ __kernel void timestep(__global float* restrict cells,
   
   int mask = obstacles[ii*NX+jj]^1;
   
-  tmp_cells[I(jj,ii,lookup[0][mask])] = tmp[local_size*0+item_id] + mask*OMEGA*(d_equ[0] - tmp[local_size*0+item_id]);
-  tmp_cells[I(jj,ii,lookup[1][mask])] = tmp[local_size*1+item_id] + mask*OMEGA*(d_equ[1] - tmp[local_size*1+item_id]);
-  tmp_cells[I(jj,ii,lookup[2][mask])] = tmp[local_size*2+item_id] + mask*OMEGA*(d_equ[2] - tmp[local_size*2+item_id]);
-  tmp_cells[I(jj,ii,lookup[3][mask])] = tmp[local_size*3+item_id] + mask*OMEGA*(d_equ[3] - tmp[local_size*3+item_id]);
-  tmp_cells[I(jj,ii,lookup[4][mask])] = tmp[local_size*4+item_id] + mask*OMEGA*(d_equ[4] - tmp[local_size*4+item_id]);
-  tmp_cells[I(jj,ii,lookup[5][mask])] = tmp[local_size*5+item_id] + mask*OMEGA*(d_equ[5] - tmp[local_size*5+item_id]);
-  tmp_cells[I(jj,ii,lookup[6][mask])] = tmp[local_size*6+item_id] + mask*OMEGA*(d_equ[6] - tmp[local_size*6+item_id]);
-  tmp_cells[I(jj,ii,lookup[7][mask])] = tmp[local_size*7+item_id] + mask*OMEGA*(d_equ[7] - tmp[local_size*7+item_id]);
-  tmp_cells[I(jj,ii,lookup[8][mask])] = tmp[local_size*8+item_id] + mask*OMEGA*(d_equ[8] - tmp[local_size*8+item_id]);
+  tmp_cells[I(jj,ii,lookup[0][mask])] = tmp[0] + mask*OMEGA*(d_equ[0] - tmp[0]);
+  tmp_cells[I(jj,ii,lookup[1][mask])] = tmp[1] + mask*OMEGA*(d_equ[1] - tmp[1]);
+  tmp_cells[I(jj,ii,lookup[2][mask])] = tmp[2] + mask*OMEGA*(d_equ[2] - tmp[2]);
+  tmp_cells[I(jj,ii,lookup[3][mask])] = tmp[3] + mask*OMEGA*(d_equ[3] - tmp[3]);
+  tmp_cells[I(jj,ii,lookup[4][mask])] = tmp[4] + mask*OMEGA*(d_equ[4] - tmp[4]);
+  tmp_cells[I(jj,ii,lookup[5][mask])] = tmp[5] + mask*OMEGA*(d_equ[5] - tmp[5]);
+  tmp_cells[I(jj,ii,lookup[6][mask])] = tmp[6] + mask*OMEGA*(d_equ[6] - tmp[6]);
+  tmp_cells[I(jj,ii,lookup[7][mask])] = tmp[7] + mask*OMEGA*(d_equ[7] - tmp[7]);
+  tmp_cells[I(jj,ii,lookup[8][mask])] = tmp[8] + mask*OMEGA*(d_equ[8] - tmp[8]);
   float tot_u = mask * native_sqrt(u_sq) * densinv;
  
   local_avgs[item_id] = tot_u*FREE_CELLS_INV;
@@ -187,7 +188,7 @@ __kernel void timestep(__global float* restrict cells,
   //if(local_size >= 128){
   //  if (item_id<64) local_avgs[item_id] += local_avgs[item_id + 64];
   //}
-  for(unsigned int s=local_size/2;s>0;s>>=1){
+  for(unsigned int s=local_size/2;s>32;s>>=1){
     if(item_id<s){
         local_avgs[item_id] += local_avgs[item_id + s];
     }

@@ -309,12 +309,12 @@ inline void timestep(const t_param params, cl_mem* d_cells, cl_mem* d_tmp_cells,
     checkError(err, "setting timestep arg 1",__LINE__);
     err = clSetKernelArg(ocl.timestep, 2, sizeof(cl_mem), &ocl.obstacles);
     checkError(err, "setting timestep arg 2",__LINE__);
-    err = clSetKernelArg(ocl.timestep, 3, sizeof(float)*work_group_size*NSPEEDS, NULL); //tmp
+    //err = clSetKernelArg(ocl.timestep, 3, sizeof(float)*work_group_size*NSPEEDS, NULL); //tmp
+    //checkError(err, "setting timestep arg 3",__LINE__);
+    err = clSetKernelArg(ocl.timestep, 3, sizeof(float)*work_group_size, NULL); //local_avgs
     checkError(err, "setting timestep arg 3",__LINE__);
-    err = clSetKernelArg(ocl.timestep, 4, sizeof(float)*work_group_size, NULL); //local_avgs
+    err = clSetKernelArg(ocl.timestep, 4, sizeof(cl_mem), &ocl.partial_avgs);
     checkError(err, "setting timestep arg 4",__LINE__);
-    err = clSetKernelArg(ocl.timestep, 5, sizeof(cl_mem), &ocl.partial_avgs);
-    checkError(err, "setting timestep arg 5",__LINE__);
 
     size_t global[2] = {params.nx, params.ny};
     size_t local[2] = {ocl.work_group_size_X, ocl.work_group_size_Y};
