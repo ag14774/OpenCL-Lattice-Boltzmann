@@ -19,12 +19,16 @@ kernel void accelerate_flow(global float* cells,
   /* get column index */
   int jj = get_global_id(0);
 
+  float res1 = cells[I(jj,ii,3)];
+  float res2 = cells[I(jj,ii,6)];
+  float res3 = cells[I(jj,ii,7)];
+
   /* if the cell is not occupied and
   ** we don't send a negative density */
   int mask = obstacles[ii*NX + jj]^1;
-  int mask1 = ((cells[I(jj,ii,3)] - w1)>0.0f) ? 1 : 0;
-  int mask2 = ((cells[I(jj,ii,6)] - w2)>0.0f) ? 1 : 0;
-  int mask3 = ((cells[I(jj,ii,7)] - w2)>0.0f) ? 1 : 0;
+  int mask1 = (res1-w1>0.0f) ? 1 : 0;
+  int mask2 = (res2-w2>0.0f) ? 1 : 0;
+  int mask3 = (res3-w2>0.0f) ? 1 : 0;
   mask = mask & mask1 & mask2 & mask3;
 
   /* increase 'east-side' densities */
@@ -32,9 +36,9 @@ kernel void accelerate_flow(global float* cells,
   cells[I(jj,ii,5)] = mad( mask, w2,cells[I(jj,ii,5)] );
   cells[I(jj,ii,8)] = mad( mask, w2,cells[I(jj,ii,8)] );
   /* decrease 'west-side' densities */
-  cells[I(jj,ii,3)] = mad( mask,-w1,cells[I(jj,ii,3)] );
-  cells[I(jj,ii,6)] = mad( mask,-w2,cells[I(jj,ii,6)] );
-  cells[I(jj,ii,7)] = mad( mask,-w2,cells[I(jj,ii,7)] );
+  cells[I(jj,ii,3)] = mad( mask,-w1,res1 );
+  cells[I(jj,ii,6)] = mad( mask,-w2,res2 );
+  cells[I(jj,ii,7)] = mad( mask,-w2,res3 );
   
 }
 

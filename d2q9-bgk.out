@@ -1,21 +1,21 @@
-Running on host node46-002
-Time is Fri Dec 9 17:58:22 GMT 2016
+Running on host node47-002
+Time is Fri Dec 9 18:28:55 GMT 2016
 Directory is /panfs/panasas01/cosc/ag14774/OpenCL-Lattice-Boltzmann
-PBS job ID is 5235820.master.cm.cluster
+PBS job ID is 5236295.master.cm.cluster
 This jobs runs on the following machines:
-node46-002
-Using GPU at index 1
+node47-002
+Using GPU at index 0
 
 Available OpenCL devices:
  0: Tesla K20m (13 compute units)
  1: Tesla K20m (13 compute units)
 
 Selected OpenCL device:
--> Tesla K20m (index=1)
+-> Tesla K20m (index=0)
 
 1024x8 workgroups with 1x128 items each
 ==done==
 Reynolds number:		3.376923322678E+00
-Elapsed time:			12.901545 (s)
-Elapsed user CPU time:		12.095161 (s)
-Elapsed system CPU time:	2.090682 (s)
+Elapsed time:			12.861122 (s)
+Elapsed user CPU time:		11.955182 (s)
+Elapsed system CPU time:	2.102680 (s)
