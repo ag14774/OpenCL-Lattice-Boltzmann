@@ -73,6 +73,7 @@
 #define I(jj,ii,sp,nx,ny) ((sp)*(nx)*(ny)+(ii)*(nx)+(jj))
 //Vector size
 #define VECSIZE 64
+#define REDUCE_FREQ 1
 //#define SINGLE_WRKGRP_REDUCT
 
 
@@ -107,7 +108,7 @@ typedef struct
   cl_mem cells;
   cl_mem tmp_cells;
   cl_mem obstacles;
-  cl_mem partial_avgs;
+  cl_mem partial_avgs[REDUCE_FREQ];
   cl_mem avgs;
 
   unsigned int nwork_groups_X;
@@ -131,9 +132,9 @@ int initialise(const char* paramfile, const char* obstaclefile, t_param* params,
 */
 void accelerate_flow(const t_param params, cl_mem* d_cells, t_ocl ocl);
 
-void timestep(const t_param params, cl_mem* d_cells, cl_mem* d_tmp_cells, t_ocl ocl);
+void timestep(const t_param params, cl_mem* d_cells, cl_mem* d_tmp_cells, cl_mem* d_par_avgs, t_ocl ocl);
 
-void reduce(t_ocl ocl, int tt);
+void reduce(t_ocl ocl, cl_mem* d_par_avgs, int tt);
 
 int write_values(const t_param params, float* cells, int* obstacles, float* av_vels);
 
@@ -215,8 +216,9 @@ int main(int argc, char* argv[])
   d_cells_ptrs[1] = &ocl.tmp_cells;
   unsigned int curr_read = 0;
   unsigned int curr_write = 1;
+  int l=0;
 
-  for (unsigned int tt = 0; tt < params.maxIters;tt++)
+  for (unsigned int tt = 0; tt < params.maxIters;tt++,l++)
   {
 
     //****1st Iteration****
@@ -224,15 +226,24 @@ int main(int argc, char* argv[])
     //barrier was here
     accelerate_flow(params, d_cells_ptrs[curr_read], ocl);
     //barrier was here
-    
-    timestep(params, d_cells_ptrs[curr_read], d_cells_ptrs[curr_write], ocl);
-
-    reduce(ocl, tt);
+    #if REDUCE_FREQ!=1
+    timestep(params, d_cells_ptrs[curr_read], d_cells_ptrs[curr_write], &ocl.partial_avgs[l] ,ocl);
+    if(l==REDUCE_FREQ-1){
+        for(;l>=0;l--){
+            reduce(ocl, &ocl.partial_avgs[REDUCE_FREQ-1-l], tt-l);
+        }
+    }
+    #else
+    timestep(params, d_cells_ptrs[curr_read], d_cells_ptrs[curr_write], &ocl.partial_avgs[0] ,ocl);
+    reduce(ocl, &ocl.partial_avgs[0], tt);
+    #endif
 
     curr_read  ^= 1;
     curr_write ^= 1;
     
   }
+  err = clFinish(ocl.queue);
+  checkError(err, "waiting for queue", __LINE__);
 
   //gettimeofday(&timstr, NULL);
   //toc = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
@@ -291,13 +302,13 @@ inline void accelerate_flow(const t_param params, cl_mem* d_cells, t_ocl ocl)
   checkError(err, "enqueueing accelerate_flow kernel", __LINE__);
 
   // Wait for kernel to finish
-  err = clFinish(ocl.queue);
-  checkError(err, "waiting for accelerate_flow kernel", __LINE__);
+  //err = clFinish(ocl.queue);
+  //checkError(err, "waiting for accelerate_flow kernel", __LINE__);
 
 }
 
 
-inline void timestep(const t_param params, cl_mem* d_cells, cl_mem* d_tmp_cells, t_ocl ocl)
+inline void timestep(const t_param params, cl_mem* d_cells, cl_mem* d_tmp_cells, cl_mem* d_par_avgs, t_ocl ocl)
 {
     cl_int err;
     size_t work_group_size = ocl.work_group_size_X*ocl.work_group_size_Y;
@@ -313,7 +324,7 @@ inline void timestep(const t_param params, cl_mem* d_cells, cl_mem* d_tmp_cells,
     //checkError(err, "setting timestep arg 3",__LINE__);
     err = clSetKernelArg(ocl.timestep, 3, sizeof(float)*work_group_size, NULL); //local_avgs
     checkError(err, "setting timestep arg 3",__LINE__);
-    err = clSetKernelArg(ocl.timestep, 4, sizeof(cl_mem), &ocl.partial_avgs);
+    err = clSetKernelArg(ocl.timestep, 4, sizeof(cl_mem), d_par_avgs);
     checkError(err, "setting timestep arg 4",__LINE__);
 
     size_t global[2] = {params.nx, params.ny};
@@ -322,17 +333,17 @@ inline void timestep(const t_param params, cl_mem* d_cells, cl_mem* d_tmp_cells,
     err = clEnqueueNDRangeKernel(ocl.queue, ocl.timestep, 2, NULL, global, local, 0, NULL, NULL);
     checkError(err, "enqueueing timestep kernel", __LINE__);
 
-    err = clFinish(ocl.queue);
-    checkError(err, "waiting for timestep kernel", __LINE__);
+    //err = clFinish(ocl.queue);
+    //checkError(err, "waiting for timestep kernel", __LINE__);
     
 }
 
 
-inline void reduce(t_ocl ocl, int tt){
+inline void reduce(t_ocl ocl, cl_mem* d_par_avgs, int tt){
     cl_int err;
 
     // Set kernel arguments
-    err = clSetKernelArg(ocl.reduce, 0, sizeof(cl_mem), &ocl.partial_avgs);
+    err = clSetKernelArg(ocl.reduce, 0, sizeof(cl_mem), d_par_avgs);
     checkError(err, "setting reduce arg 0",__LINE__);
     err = clSetKernelArg(ocl.reduce, 2, sizeof(cl_mem), &ocl.avgs);
     checkError(err, "setting reduce arg 2",__LINE__);
@@ -362,8 +373,8 @@ inline void reduce(t_ocl ocl, int tt){
         err = clEnqueueNDRangeKernel(ocl.queue, ocl.reduce, 1, NULL, global, local, 0, NULL, NULL);
         checkError(err, "enqueueing reduce kernel", __LINE__);
 
-        err = clFinish(ocl.queue);
-        checkError(err, "waiting for reduce kernel", __LINE__);
+        //err = clFinish(ocl.queue);
+        //checkError(err, "waiting for reduce kernel", __LINE__);
     }
 
     #else
@@ -682,10 +693,12 @@ int initialise(const char* paramfile, const char* obstaclefile,
     sizeof(cl_int) * params->nx * params->ny, NULL, &err);
   checkError(err, "creating obstacles buffer", __LINE__);
 
-  ocl->partial_avgs = clCreateBuffer(
-    ocl->context, CL_MEM_READ_WRITE,
-    sizeof(cl_float) * ocl->nwork_groups_X*ocl->nwork_groups_Y, NULL, &err);
-  checkError(err, "creating partial_avgs buffer", __LINE__);
+  for(int i=0;i<REDUCE_FREQ;i++){
+    ocl->partial_avgs[i] = clCreateBuffer(
+      ocl->context, CL_MEM_READ_WRITE,
+      sizeof(cl_float) * ocl->nwork_groups_X*ocl->nwork_groups_Y, NULL, &err);
+    checkError(err, "creating partial_avgs buffer", __LINE__);
+  }
 
   ocl->avgs = clCreateBuffer(
     ocl->context, CL_MEM_WRITE_ONLY,
@@ -712,7 +725,8 @@ int finalise(const t_param* params, float** cells_ptr, int** obstacles_ptr, floa
   clReleaseMemObject(ocl.cells);
   clReleaseMemObject(ocl.tmp_cells);
   clReleaseMemObject(ocl.obstacles);
-  clReleaseMemObject(ocl.partial_avgs);
+  for(int i=0;i<REDUCE_FREQ;i++)
+    clReleaseMemObject(ocl.partial_avgs[i]);
   clReleaseMemObject(ocl.avgs);
 
   clReleaseKernel(ocl.accelerate_flow);
