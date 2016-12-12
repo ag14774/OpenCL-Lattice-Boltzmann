@@ -1,7 +1,8 @@
 //#pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
 #define NSPEEDS     9
-#define VECSIZE     64
+#define VECSIZE     2
+#define GRIDSIZE    NX/VECSIZE
 
 #define I(jj,ii,sp) ((sp)*NX*NY+(ii)*NX+(jj)) 
 
@@ -47,7 +48,7 @@ __kernel void timestep(__global float* restrict cells,
                      __global float* restrict tmp_cells,
                      __global int* restrict obstacles, 
                      __local float* local_avgs,
-                     __global float* partial_avgs) //remember to reduce partial_avg in a different kernel
+                     __global float* partial_avgs, int step_mod) //remember to reduce partial_avg in a different kernel
 {
   //static const float c_sq = 1.0 / 3.0; /* square of speed of sound */
   const float ic_sq = 3.0f;
@@ -74,7 +75,7 @@ __kernel void timestep(__global float* restrict cells,
 
   //printf("y dimension:%d\n",ii);
 
-  float tmp[NSPEEDS];
+  float tmp[NSPEEDS*VECSIZE];
  
   int y_n = ii + 1;
   y_n = (y_n == NY) ? (0) : (y_n);
@@ -84,29 +85,32 @@ __kernel void timestep(__global float* restrict cells,
   x_e = (x_e >= NX) ? (x_e -= NX) : (x_e);
   int x_w = (jj == 0) ? (NX - 1) : (jj-1);
   
-  tmp[0] = cells[ I(jj ,ii ,0) ];
-  tmp[1] = cells[ I(x_w,ii ,1) ];
-  tmp[2] = cells[ I(jj ,y_s,2) ];
-  tmp[3] = cells[ I(x_e,ii ,3) ];
-  tmp[4] = cells[ I(jj ,y_n,4) ];
-  tmp[5] = cells[ I(x_w,y_s,5) ];
-  tmp[6] = cells[ I(x_e,y_s,6) ];
-  tmp[7] = cells[ I(x_e,y_n,7) ];
-  tmp[8] = cells[ I(x_w,y_n,8) ]; 
+  //for(int grid = 0,int k = 0;k<VECSIZE;grid+=GRIDSIZE,k++){
+    tmp[0] = cells[ I(jj,ii ,0) ];
+    tmp[1] = cells[ I(x_w,ii ,1) ];
+    tmp[2] = cells[ I(jj ,y_s,2) ];
+    tmp[3] = cells[ I(x_e,ii ,3) ];
+    tmp[4] = cells[ I(jj ,y_n,4) ];
+    tmp[5] = cells[ I(x_w,y_s,5) ];
+    tmp[6] = cells[ I(x_e,y_s,6) ];
+    tmp[7] = cells[ I(x_e,y_n,7) ];
+    tmp[8] = cells[ I(x_w,y_n,8) ]; 
+  //}
+  
+  //for(int grid = 0,int k = 0;k<NSPEEDS*VECSIZE;grid+=GRIDSIZE,k+=NSPEEDS){
+    float densvec = tmp[0];
+    densvec += tmp[1];
+    densvec += tmp[2];
+    densvec += tmp[3];
+    densvec += tmp[4];
+    densvec += tmp[5];
+    densvec += tmp[6];
+    densvec += tmp[7];
+    densvec += tmp[8];
 
+    float densinv = native_recip(densvec);
   
-  float densvec = tmp[0];
-  densvec += tmp[1];
-  densvec += tmp[2];
-  densvec += tmp[3];
-  densvec += tmp[4];
-  densvec += tmp[5];
-  densvec += tmp[6];
-  densvec += tmp[7];
-  densvec += tmp[8];
-  
-  float densinv = native_recip(densvec);
-  
+  //}
 
   float u_x = tmp[1] + tmp[5];
   u_x += tmp[8];
@@ -207,7 +211,7 @@ __kernel void timestep(__global float* restrict cells,
     if(local_size>= 4) local_avgs[item_id] += local_avgs[item_id + 2];
     if(local_size>= 2) local_avgs[item_id] += local_avgs[item_id + 1];
   }
-  if(item_id == 0) partial_avgs[groupID] = local_avgs[0];
+  if(item_id == 0) partial_avgs[step_mod*REDUCT_WIDTH+groupID] = local_avgs[0];
  
 }
 
@@ -216,13 +220,13 @@ kernel void reduce(global float* partial_avgs,
                    local  float* local_partial_avgs, 
                    global float* avgs, int tt)
 {
-    float tmp = 0;
-    int group_id = get_group_id(0);
+    int group_idX = get_group_id(0);
+    int group_idY = get_group_id(1);
     int local_id = get_local_id(0);
     int local_size = get_local_size(0);
     int num_groups = get_num_groups(0);
-    int k = 2*group_id*local_size + local_id;
-    local_partial_avgs[local_id] = partial_avgs[k] + partial_avgs[k+local_size];//reduce while copying from global to local
+    int k = 2*group_idX*local_size + local_id;
+    local_partial_avgs[local_id] = partial_avgs[group_idY*REDUCT_WIDTH+k] + partial_avgs[group_idY*REDUCT_WIDTH+k+local_size];//reduce while copying from global to local
     barrier(CLK_LOCAL_MEM_FENCE);
     if(local_size >= 512){
         if(local_id<256) local_partial_avgs[local_id] += local_partial_avgs[local_id + 256];
@@ -255,9 +259,9 @@ kernel void reduce(global float* partial_avgs,
 
     if(local_id == 0){
         if(num_groups == 1)
-            avgs[tt] = local_partial_avgs[0];
+            avgs[tt+group_idY] = local_partial_avgs[0];
         else
-            partial_avgs[group_id] = local_partial_avgs[0];
+            partial_avgs[group_idY*REDUCT_WIDTH+group_idX] = local_partial_avgs[0];
     }
     //if(gid == 0) {
     //    for(int i=0;i<size;i++){

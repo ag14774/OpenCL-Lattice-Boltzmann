@@ -24,6 +24,8 @@ application="./d2q9-bgk"
 #!options="input_256x256.params obstacles_256x256.dat"
 options="input_1024x1024.params obstacles_1024x1024.dat"
 
+#!source ~jp8463/icd/intel.sh
+
 ###############################################################
 ### You should not have to change anything below this line ####
 ###############################################################
