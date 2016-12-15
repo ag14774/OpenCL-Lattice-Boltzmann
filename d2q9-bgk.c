@@ -72,7 +72,7 @@
 #define NUMTHREADS      1
 #define I(jj,ii,sp,nx,ny) ((sp)*(nx)*(ny)+(ii)*(nx)+(jj))
 //Vector size
-#define VECSIZE 1
+#define VECSIZE 2
 #define REDUCE_FREQ 10000
 //#define SINGLE_WRKGRP_REDUCT
 
@@ -638,7 +638,7 @@ int initialise(const char* paramfile, const char* obstaclefile,
 
   char options[512];
   options[0]='\0';
-  sprintf(options, "-cl-denorms-are-zero -cl-single-precision-constant -cl-fast-relaxed-math -cl-strict-aliasing -D REDUCT_WIDTH=%d -D NX=%d -D NY=%d -D OMEGA=%ff -D ACCEL=%ff -D FREE_CELLS_INV=%a -D DENSITY=%ff",ocl->nwork_groups_X*ocl->nwork_groups_Y,params->nx,params->ny,params->omega,params->accel,params->free_cells_inv,params->density);
+  sprintf(options, "-cl-strict-aliasing -cl-mad-enable -cl-no-signed-zeros -D REDUCT_WIDTH=%d -D NX=%d -D NY=%d -D OMEGA=%ff -D ACCEL=%ff -D FREE_CELLS_INV=%a -D DENSITY=%ff",ocl->nwork_groups_X*ocl->nwork_groups_Y,params->nx,params->ny,params->omega,params->accel,params->free_cells_inv,params->density);
   //sprintf(options, "-cl-fast-relaxed-math -DREDUCT_WIDTH=%d -DNX=%d -DNY=%d -DOMEGA=%ff -DACCEL=%ff -DFREE_CELLS_INV=%a -DDENSITY=%ff",ocl->nwork_groups_X*ocl->nwork_groups_Y,params->nx,params->ny,params->omega,params->accel,params->free_cells_inv,params->density);
   
   // Build OpenCL program

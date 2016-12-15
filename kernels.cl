@@ -1,7 +1,7 @@
 //#pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
 #define NSPEEDS     9
-#define VECSIZE     1
+#define VECSIZE     2
 #define GRIDSIZE    NX/VECSIZE
 
 #define I(jj,ii,sp) ((sp)*NX*NY+(ii)*NX+(jj))
@@ -66,7 +66,7 @@ __kernel void timestep(__global float* restrict cells,
   const float w1 = 0.1111111111111111111111f;  /* weighting factor */
   const float w2 = 0.0277777777777777777778f; /* weighting factor */
 
-  const unsigned int lookup[9][2] __attribute__((aligned(32))) = {{0,0},{3,1},{4,2},{1,3},{2,4},{7,5},{8,6},{5,7},{6,8}};
+  const unsigned int lookup[9][2] __attribute__((aligned(16))) = {{0,0},{3,1},{4,2},{1,3},{2,4},{7,5},{8,6},{5,7},{6,8}};
  
   /* loop over the cells in the grid
   ** NB the collision step is called after
@@ -85,14 +85,15 @@ __kernel void timestep(__global float* restrict cells,
 
   //printf("y dimension:%d\n",ii);
 
-  float tmp[NSPEEDS*VECSIZE];
-  int mask[VECSIZE];
+  float tmp[NSPEEDS*VECSIZE] __attribute__((aligned(16)));
+  int mask[VECSIZE] __attribute__((aligned(16)));
     
   int y_n = ii + 1;
   y_n = (y_n == NY) ? (0) : (y_n);
   int y_s = (ii == 0) ? (NY-1) : (ii-1);
   
   int grid,k,p; 
+
   for(grid = 0, k = 0;k<VECSIZE;grid+=GRIDSIZE,k++){
  
     int xx = jj + grid;
@@ -114,6 +115,7 @@ __kernel void timestep(__global float* restrict cells,
   
   for(grid = 0, p = 0;p<VECSIZE;grid+=GRIDSIZE,p++){
     int k = p*NSPEEDS;
+    
     float densvec = tmp[k+0];
     densvec += tmp[k+1];
     densvec += tmp[k+2];
@@ -126,7 +128,7 @@ __kernel void timestep(__global float* restrict cells,
 
     float densinv = native_recip(densvec);
   
-    float u_x = tmp[k+1] + tmp[k+5];
+    float u_x =  tmp[k+1] + tmp[k+5];
     u_x += tmp[k+8];
     u_x -= tmp[k+3];
     u_x -= tmp[k+6];
@@ -181,9 +183,9 @@ __kernel void timestep(__global float* restrict cells,
     d_equ[6] = w2 * (densvec + ic_sqtimesu[6] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[6]-u_sq) );
     d_equ[7] = w2 * (densvec + ic_sqtimesu[7] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[7]-u_sq) );
     d_equ[8] = w2 * (densvec + ic_sqtimesu[8] + 0.5f * densinv*ic_sq * (ic_sqtimesu_sq[8]-u_sq) );
-
+    
     int lmask = mask[p];
-  
+    
     tmp_cells[I(jj+grid,ii,lookup[0][lmask])] = tmp[0+k] + lmask*OMEGA*(d_equ[0] - tmp[0+k]);
     tmp_cells[I(jj+grid,ii,lookup[1][lmask])] = tmp[1+k] + lmask*OMEGA*(d_equ[1] - tmp[1+k]);
     tmp_cells[I(jj+grid,ii,lookup[2][lmask])] = tmp[2+k] + lmask*OMEGA*(d_equ[2] - tmp[2+k]);
