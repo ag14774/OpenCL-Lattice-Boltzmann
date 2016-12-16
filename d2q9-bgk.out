@@ -1,7 +1,7 @@
 Running on host node46-002
-Time is Wed Dec 14 03:14:45 GMT 2016
+Time is Thu Dec 15 02:40:10 GMT 2016
 Directory is /panfs/panasas01/cosc/ag14774/OpenCL-Lattice-Boltzmann
-PBS job ID is 5261774.master.cm.cluster
+PBS job ID is 5267886.master.cm.cluster
 This jobs runs on the following machines:
 node46-002
 Using GPU at index 0
@@ -16,9 +16,9 @@ Selected OpenCL device:
 1024x8 workgroups with 1x64 items each
 ==done==
 Reynolds number:		3.376923322678E+00
-Elapsed time:			11.697893 (s)
-Elapsed user CPU time:		8.339732 (s)
-Elapsed system CPU time:	4.578303 (s)
+Elapsed time:			11.696591 (s)
+Elapsed user CPU time:		8.429718 (s)
+Elapsed system CPU time:	4.491317 (s)
 
 Available OpenCL devices:
  0: Tesla K20m (13 compute units)
@@ -30,9 +30,9 @@ Selected OpenCL device:
 1024x8 workgroups with 1x64 items each
 ==done==
 Reynolds number:		3.376923322678E+00
-Elapsed time:			11.697163 (s)
-Elapsed user CPU time:		8.299738 (s)
-Elapsed system CPU time:	4.616298 (s)
+Elapsed time:			11.698066 (s)
+Elapsed user CPU time:		8.400722 (s)
+Elapsed system CPU time:	4.518313 (s)
 
 Available OpenCL devices:
  0: Tesla K20m (13 compute units)
@@ -44,9 +44,9 @@ Selected OpenCL device:
 1024x8 workgroups with 1x64 items each
 ==done==
 Reynolds number:		3.376923322678E+00
-Elapsed time:			11.696289 (s)
-Elapsed user CPU time:		8.369727 (s)
-Elapsed system CPU time:	4.547308 (s)
+Elapsed time:			11.696468 (s)
+Elapsed user CPU time:		8.441716 (s)
+Elapsed system CPU time:	4.505315 (s)
 
 Available OpenCL devices:
  0: Tesla K20m (13 compute units)
@@ -58,9 +58,9 @@ Selected OpenCL device:
 1024x8 workgroups with 1x64 items each
 ==done==
 Reynolds number:		3.376923322678E+00
-Elapsed time:			11.697059 (s)
+Elapsed time:			11.697017 (s)
 Elapsed user CPU time:		8.373727 (s)
-Elapsed system CPU time:	4.549308 (s)
+Elapsed system CPU time:	4.546308 (s)
 
 Available OpenCL devices:
  0: Tesla K20m (13 compute units)
@@ -72,6 +72,6 @@ Selected OpenCL device:
 1024x8 workgroups with 1x64 items each
 ==done==
 Reynolds number:		3.376923322678E+00
-Elapsed time:			11.697504 (s)
-Elapsed user CPU time:		8.366728 (s)
-Elapsed system CPU time:	4.557307 (s)
+Elapsed time:			11.697229 (s)
+Elapsed user CPU time:		8.477711 (s)
+Elapsed system CPU time:	4.441324 (s)

@@ -360,8 +360,8 @@ inline void reduce(t_ocl ocl, int tt){
         //printf("global_size: %lu\n",global_size);
         global_size = global_size / 2;
         global[0] = global_size;
-        if(global_size >= 512)
-            local[0] = 512;
+        if(global_size >= 256)
+            local[0] = 256;
         else
             local[0] = global_size;
         global_size = global_size / local[0]; //after running the kernel
@@ -638,7 +638,11 @@ int initialise(const char* paramfile, const char* obstaclefile,
 
   char options[512];
   options[0]='\0';
-  sprintf(options, "-cl-strict-aliasing -cl-mad-enable -cl-no-signed-zeros -D REDUCT_WIDTH=%d -D NX=%d -D NY=%d -D OMEGA=%ff -D ACCEL=%ff -D FREE_CELLS_INV=%a -D DENSITY=%ff",ocl->nwork_groups_X*ocl->nwork_groups_Y,params->nx,params->ny,params->omega,params->accel,params->free_cells_inv,params->density);
+  //FOR 128X128
+  if(params->nx==128 && params->ny==128)
+    sprintf(options, "-cl-fast-relaxed-math -cl-strict-aliasing -cl-mad-enable -cl-no-signed-zeros -D REDUCT_WIDTH=%d -D NX=%d -D NY=%d -D OMEGA=%ff -D ACCEL=%ff -D FREE_CELLS_INV=%a -D DENSITY=%ff",ocl->nwork_groups_X*ocl->nwork_groups_Y,params->nx,params->ny,params->omega,params->accel,params->free_cells_inv,params->density);
+  else
+    sprintf(options, "-cl-strict-aliasing -cl-mad-enable -cl-no-signed-zeros -D REDUCT_WIDTH=%d -D NX=%d -D NY=%d -D OMEGA=%ff -D ACCEL=%ff -D FREE_CELLS_INV=%a -D DENSITY=%ff",ocl->nwork_groups_X*ocl->nwork_groups_Y,params->nx,params->ny,params->omega,params->accel,params->free_cells_inv,params->density);
   //sprintf(options, "-cl-fast-relaxed-math -DREDUCT_WIDTH=%d -DNX=%d -DNY=%d -DOMEGA=%ff -DACCEL=%ff -DFREE_CELLS_INV=%a -DDENSITY=%ff",ocl->nwork_groups_X*ocl->nwork_groups_Y,params->nx,params->ny,params->omega,params->accel,params->free_cells_inv,params->density);
   
   // Build OpenCL program
